@@ -2,7 +2,7 @@
   "name": "@azwebmaster/openapi-to-ts",
   "version": "0.0.3",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org"
   },
   "type": "module",
   "main": "dist/index.js",

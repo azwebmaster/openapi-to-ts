@@ -93,7 +93,7 @@ openapi-to-ts examples
 ### Programmatic Usage
 
 ```typescript
-import { generateFromSpec } from '@dotgithub/openapi';
+import { generateFromSpec } from '@azwebmaster/openapi-to-ts';
 
 await generateFromSpec({
   inputSpec: './specs/api.yaml',  // Path to OpenAPI spec (YAML or JSON)
