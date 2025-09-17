@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    reporter: ['default', 'json'],
+    outputFile: 'test-results.json',
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],

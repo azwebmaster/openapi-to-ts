@@ -1,0 +1,70 @@
+name: Test Results Comment
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    if: >
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Download PR number
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: CI
+          run_id: ${{ github.event.workflow_run.id }}
+          name: pr-number
+          path: ./
+
+      - name: Read PR Number
+        id: pr
+        run: echo "number=$(cat pr-number.txt)" >> $GITHUB_OUTPUT
+
+      - name: Download Coverage
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: CI
+          run_id: ${{ github.event.workflow_run.id }}
+          name: coverage-report
+          path: ./
+
+      - name: Download Test Results
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: CI
+          run_id: ${{ github.event.workflow_run.id }}
+          name: test-results
+          path: ./
+
+      - name: Comment PR
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          pr_number: ${{ steps.pr.outputs.number }}
+          comment_tag: test-coverage
+          recreate: true
+          message: |
+            ## 📊 Test Results & Coverage Report
+            
+            ### Test Summary
+            ```
+            $(cat test-summary.txt)
+            ```
+            
+            ### Coverage Summary  
+            ```
+            $(cat coverage-summary.txt)
+            ```
+            
+            📝 **Coverage Report**: [View detailed coverage report](https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }})
+            
+            ---
+            *Updated automatically by GitHub Actions*

@@ -202,6 +202,46 @@ pets.data.forEach(pet => {
 });
 ```
 
+## Testing
+
+This project includes comprehensive unit tests with coverage reporting.
+
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode (during development)
+npm run test:watch
+
+# Run tests with coverage report
+npm run test:coverage
+```
+
+### Test Structure
+
+- **Unit Tests**: Located in `src/*.test.ts` files alongside source code
+- **Coverage**: Configured with vitest and v8 coverage provider
+- **Thresholds**: 80% coverage required for branches, functions, lines, and statements
+
+### Coverage Reports
+
+The coverage command generates multiple report formats:
+- **Terminal**: Text summary displayed after test run
+- **HTML**: Interactive coverage report in `coverage/index.html`
+- **LCOV**: Coverage data in `coverage/lcov.info` for CI/CD integration
+- **JSON**: Machine-readable coverage data in `coverage/coverage-final.json`
+
+### CI/CD Integration
+
+GitHub Actions automatically:
+- ✅ Runs tests on every PR and push to main
+- ✅ Generates coverage reports
+- ✅ Posts test results and coverage summary as PR comments
+- ✅ Uploads coverage to Codecov
+- ✅ Fails if coverage thresholds are not met
+
 ## API
 
 ### `generateFromSpec(options: GeneratorOptions)`
