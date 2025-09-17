@@ -1,6 +1,9 @@
 {
   "name": "@azwebmaster/openapi-to-ts",
   "version": "0.0.1",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,7 +25,10 @@
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
     "generate": "bun run src/index.ts",
-    "cli": "bun run src/cli.ts"
+    "cli": "bun run src/cli.ts",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "changeset publish"
   },
   "dependencies": {
     "@apidevtools/swagger-parser": "^10.1.0",
@@ -34,6 +40,7 @@
     "ts-morph": "^24.0.0"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.7",
     "@types/node": "latest",
     "@vitest/coverage-v8": "^3.2.4",
     "@vitest/ui": "^3.2.4",
