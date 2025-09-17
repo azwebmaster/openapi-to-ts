@@ -964,7 +964,7 @@ export class OpenAPIGenerator {
 
   public getResponseType(responses: any): string {
     const successResponse = responses['200'] || responses['201'] || responses['204'];
-    if (!successResponse) return 'any';
+    if (!successResponse) return 'unknown';
 
     const content = successResponse.content;
     if (!content) return 'void';
