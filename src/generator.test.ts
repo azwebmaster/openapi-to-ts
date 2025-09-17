@@ -127,7 +127,7 @@ describe('OpenAPIGenerator', () => {
 
       it('should handle empty schema', () => {
         const result = generator.getTypeString(null);
-        expect(result).toBe('any');
+        expect(result).toBe('unknown');
       });
     });
 
@@ -251,7 +251,7 @@ describe('OpenAPIGenerator', () => {
           '404': { description: 'Not found' }
         };
         const result = generator.getResponseType(responses);
-        expect(result).toBe('any');
+        expect(result).toBe('unknown');
       });
 
       it('should handle response without content', () => {
@@ -326,7 +326,7 @@ describe('OpenAPIGenerator', () => {
 
       it('should handle undefined const', () => {
         const result = generator.handleConst({});
-        expect(result).toBe('any');
+        expect(result).toBe('unknown');
       });
     });
 
@@ -363,12 +363,12 @@ describe('OpenAPIGenerator', () => {
 
       it('should handle object type', () => {
         const result = generator.getPrimitiveType('object', {});
-        expect(result).toBe('Record<string, any>');
+        expect(result).toBe('Record<string, unknown>');
       });
 
       it('should handle unknown type', () => {
         const result = generator.getPrimitiveType('unknown', {});
-        expect(result).toBe('any');
+        expect(result).toBe('unknown');
       });
     });
 
@@ -383,12 +383,12 @@ describe('OpenAPIGenerator', () => {
           type: 'object',
           additionalProperties: true
         });
-        expect(result).toBe('Record<string, any>');
+        expect(result).toBe('Record<string, unknown>');
       });
 
       it('should handle unknown type', () => {
         const result = generator.getBaseTypeString({ type: 'unknown' });
-        expect(result).toBe('any');
+        expect(result).toBe('unknown');
       });
     });
   });

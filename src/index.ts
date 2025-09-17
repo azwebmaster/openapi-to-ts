@@ -1,4 +1,4 @@
-export { OpenAPIGenerator } from './generator.js';
+export { OpenAPIGenerator, TypeOutputMode } from './generator.js';
 export type { GeneratorOptions } from './generator.js';
 
 import { OpenAPIGenerator } from './generator.js';

@@ -6,12 +6,19 @@ import { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
 import * as https from 'https';
 import * as http from 'http';
 
+export enum TypeOutputMode {
+  SingleFile = 'single-file',
+  FilePerType = 'file-per-type',
+  GroupByTag = 'group-by-tag'
+}
+
 export interface GeneratorOptions {
   inputSpec: string;
   outputDir: string;
   axiosInstanceName?: string;
   namespace?: string;
   headers?: Record<string, string>;
+  typeOutputMode?: TypeOutputMode;
 }
 
 type OpenAPIDocument = OpenAPIV3.Document | OpenAPIV3_1.Document;
@@ -20,6 +27,7 @@ export class OpenAPIGenerator {
   private project: Project;
   private api: OpenAPIDocument | null = null;
   private namespace: string;
+  private typeOutputMode: TypeOutputMode;
 
   constructor(private options: GeneratorOptions) {
     this.project = new Project({
@@ -37,6 +45,7 @@ export class OpenAPIGenerator {
       },
     });
     this.namespace = options.namespace || 'API';
+    this.typeOutputMode = options.typeOutputMode || TypeOutputMode.SingleFile;
   }
 
   async generate(): Promise<void> {
@@ -115,19 +124,245 @@ export class OpenAPIGenerator {
   }
 
   private async generateTypes(): Promise<void> {
+    if (!this.api) return;
+
+    const schemas = (this.api.components as any)?.schemas || {};
+
+    switch (this.typeOutputMode) {
+      case TypeOutputMode.FilePerType:
+        await this.generateTypesInSeparateFiles(schemas);
+        break;
+      case TypeOutputMode.GroupByTag:
+        await this.generateTypesGroupedByTag(schemas);
+        break;
+      case TypeOutputMode.SingleFile:
+      default:
+        await this.generateTypesInSingleFile(schemas);
+        break;
+    }
+  }
+
+  private async generateTypesInSingleFile(schemas: Record<string, any>): Promise<void> {
     const file = this.project.createSourceFile(
       path.join(this.options.outputDir, 'types.ts'),
       undefined,
       { overwrite: true }
     );
 
-    if (!this.api) return;
+    for (const [name, schema] of Object.entries(schemas)) {
+      this.generateTypeFromSchema(file, name, schema);
+    }
+  }
 
-    const schemas = (this.api.components as any)?.schemas || {};
+  private async generateTypesInSeparateFiles(schemas: Record<string, any>): Promise<void> {
+    const typesDir = path.join(this.options.outputDir, 'types');
+    await fs.mkdir(typesDir, { recursive: true });
+
+    // Create an index file that re-exports all types
+    const indexFile = this.project.createSourceFile(
+      path.join(this.options.outputDir, 'types.ts'),
+      undefined,
+      { overwrite: true }
+    );
 
     for (const [name, schema] of Object.entries(schemas)) {
-      this.generateTypeFromSchema(file, name, schema as any);
+      const fileName = this.toKebabCase(name) + '.ts';
+      const file = this.project.createSourceFile(
+        path.join(typesDir, fileName),
+        undefined,
+        { overwrite: true }
+      );
+
+      // Check if this type depends on other types
+      const dependencies = this.extractDependencies(schema);
+      if (dependencies.length > 0) {
+        // Add imports for dependencies
+        for (const dep of dependencies) {
+          file.addImportDeclaration({
+            moduleSpecifier: `./${this.toKebabCase(dep)}.js`,
+            namedImports: [this.toTypeName(dep)],
+            isTypeOnly: true,
+          });
+        }
+      }
+
+      this.generateTypeFromSchema(file, name, schema);
+
+      // Add re-export to index file
+      indexFile.addExportDeclaration({
+        moduleSpecifier: `./types/${this.toKebabCase(name)}.js`,
+        namedExports: [this.toTypeName(name)],
+      });
     }
+  }
+
+  private async generateTypesGroupedByTag(schemas: Record<string, any>): Promise<void> {
+    const typesDir = path.join(this.options.outputDir, 'types');
+    await fs.mkdir(typesDir, { recursive: true });
+
+    // Group schemas by their tags (if available) or create a default group
+    const schemaGroups = this.groupSchemasByTag(schemas);
+
+    // Create an index file that re-exports all types
+    const indexFile = this.project.createSourceFile(
+      path.join(this.options.outputDir, 'types.ts'),
+      undefined,
+      { overwrite: true }
+    );
+
+    for (const [groupName, groupSchemas] of Object.entries(schemaGroups)) {
+      const fileName = this.toKebabCase(groupName) + '.ts';
+      const file = this.project.createSourceFile(
+        path.join(typesDir, fileName),
+        undefined,
+        { overwrite: true }
+      );
+
+      // Collect all dependencies for this group
+      const groupDependencies = new Set<string>();
+      for (const [name, schema] of Object.entries(groupSchemas)) {
+        const deps = this.extractDependencies(schema);
+        deps.forEach(dep => {
+          // Only add as dependency if it's not in the same group
+          if (!groupSchemas[dep]) {
+            groupDependencies.add(dep);
+          }
+        });
+      }
+
+      // Add imports for external dependencies
+      if (groupDependencies.size > 0) {
+        for (const dep of groupDependencies) {
+          const depGroup = this.findSchemaGroup(dep, schemaGroups);
+          if (depGroup && depGroup !== groupName) {
+            file.addImportDeclaration({
+              moduleSpecifier: `./${this.toKebabCase(depGroup)}.js`,
+              namedImports: [this.toTypeName(dep)],
+              isTypeOnly: true,
+            });
+          }
+        }
+      }
+
+      // Generate all types in this group
+      for (const [name, schema] of Object.entries(groupSchemas)) {
+        this.generateTypeFromSchema(file, name, schema);
+      }
+
+      // Add re-export to index file
+      indexFile.addExportDeclaration({
+        moduleSpecifier: `./types/${this.toKebabCase(groupName)}.js`,
+      });
+    }
+  }
+
+  private extractDependencies(schema: any): string[] {
+    const dependencies = new Set<string>();
+
+    const extractFromSchema = (s: any) => {
+      if (!s) return;
+
+      if (s.$ref) {
+        const refName = s.$ref.split('/').pop();
+        if (refName) dependencies.add(refName);
+      }
+
+      if (s.anyOf || s.oneOf || s.allOf) {
+        const schemas = s.anyOf || s.oneOf || s.allOf;
+        schemas.forEach((subSchema: any) => extractFromSchema(subSchema));
+      }
+
+      if (s.type === 'array' && s.items) {
+        extractFromSchema(s.items);
+      }
+
+      if (s.properties) {
+        Object.values(s.properties).forEach((prop: any) => extractFromSchema(prop));
+      }
+
+      if (s.additionalProperties && typeof s.additionalProperties === 'object') {
+        extractFromSchema(s.additionalProperties);
+      }
+    };
+
+    extractFromSchema(schema);
+    return Array.from(dependencies);
+  }
+
+  private groupSchemasByTag(schemas: Record<string, any>): Record<string, Record<string, any>> {
+    const groups: Record<string, Record<string, any>> = {};
+
+    // Try to infer groups from schema names or use a default group
+    for (const [name, schema] of Object.entries(schemas)) {
+      // Simple grouping strategy: group by common prefixes or use 'common'
+      const groupName = this.inferGroupName(name, schema);
+
+      if (!groups[groupName]) {
+        groups[groupName] = {};
+      }
+      groups[groupName][name] = schema;
+    }
+
+    // If we only have one group, split it into logical groups
+    if (Object.keys(groups).length === 1 && Object.keys(schemas).length > 10) {
+      return this.splitIntoLogicalGroups(schemas);
+    }
+
+    return groups;
+  }
+
+  private inferGroupName(name: string, schema: any): string {
+    // Check if schema has x-tag or x-group extension
+    if (schema['x-tag']) return schema['x-tag'];
+    if (schema['x-group']) return schema['x-group'];
+
+    // Common patterns for grouping
+    const patterns = [
+      { regex: /^(User|Account|Auth|Login|Session)/i, group: 'auth' },
+      { regex: /^(Product|Item|Catalog|Category)/i, group: 'catalog' },
+      { regex: /^(Order|Cart|Checkout|Payment)/i, group: 'commerce' },
+      { regex: /^(Error|Exception|Problem)/i, group: 'errors' },
+      { regex: /^(Response|Request|Payload)/i, group: 'common' },
+    ];
+
+    for (const pattern of patterns) {
+      if (pattern.regex.test(name)) {
+        return pattern.group;
+      }
+    }
+
+    return 'models';
+  }
+
+  private splitIntoLogicalGroups(schemas: Record<string, any>): Record<string, Record<string, any>> {
+    const groups: Record<string, Record<string, any>> = {};
+
+    for (const [name, schema] of Object.entries(schemas)) {
+      const groupName = this.inferGroupName(name, schema);
+
+      if (!groups[groupName]) {
+        groups[groupName] = {};
+      }
+      groups[groupName][name] = schema;
+    }
+
+    return groups;
+  }
+
+  private findSchemaGroup(schemaName: string, groups: Record<string, Record<string, any>>): string | undefined {
+    for (const [groupName, groupSchemas] of Object.entries(groups)) {
+      if (groupSchemas[schemaName]) {
+        return groupName;
+      }
+    }
+    return undefined;
+  }
+
+  private toKebabCase(str: string): string {
+    return str
+      .replace(/([a-z])([A-Z])/g, '$1-$2')
+      .replace(/[\s_]+/g, '-')
+      .toLowerCase();
   }
 
   private generateTypeFromSchema(file: SourceFile, name: string, schema: any): void {
@@ -217,7 +452,7 @@ export class OpenAPIGenerator {
   }
 
   public getTypeString(schema: any): string {
-    if (!schema) return 'any';
+    if (!schema) return 'unknown';
 
     if (schema.$ref) {
       const refName = schema.$ref.split('/').pop();
@@ -281,7 +516,7 @@ export class OpenAPIGenerator {
       case 'boolean':
         return 'boolean';
       case 'array':
-        return `Array<${this.getTypeString(schema.items)}>`;
+        return `Array<${schema.items ? this.getTypeString(schema.items) : 'unknown'}>`;
       case 'object':
         if (schema.properties) {
           // Inline object type
@@ -294,13 +529,13 @@ export class OpenAPIGenerator {
         }
         if (schema.additionalProperties) {
           if (schema.additionalProperties === true) {
-            return 'Record<string, any>';
+            return 'Record<string, unknown>';
           }
           return `Record<string, ${this.getTypeString(schema.additionalProperties)}>`;
         }
-        return 'Record<string, any>';
+        return 'Record<string, unknown>';
       default:
-        return 'any';
+        return 'unknown';
     }
   }
 
@@ -316,11 +551,11 @@ export class OpenAPIGenerator {
       case 'boolean':
         return 'boolean';
       case 'array':
-        return `Array<${this.getTypeString(schema.items)}>`;
+        return `Array<${schema.items ? this.getTypeString(schema.items) : 'unknown'}>`;
       case 'object':
-        return 'Record<string, any>';
+        return 'Record<string, unknown>';
       default:
-        return 'any';
+        return 'unknown';
     }
   }
 
@@ -356,7 +591,7 @@ export class OpenAPIGenerator {
       }
       return JSON.stringify(schema.const);
     }
-    return 'any';
+    return 'unknown';
   }
 
   private async generateClient(): Promise<void> {
@@ -747,6 +982,12 @@ export class OpenAPIGenerator {
       { overwrite: true }
     );
 
+    file.addImportDeclaration({
+      moduleSpecifier: 'axios',
+      namedImports: ['AxiosRequestConfig'],
+      isTypeOnly: true,
+    });
+
     file.addExportDeclaration({
       moduleSpecifier: './types.js',
     });
@@ -766,7 +1007,7 @@ export class OpenAPIGenerator {
       declarations: [
         {
           name: 'createClient',
-          initializer: `(baseURL: string, config?: any) => new ${this.namespace}Client(baseURL, config)`,
+          initializer: `(baseURL: string, config?: AxiosRequestConfig) => new ${this.namespace}Client(baseURL, config)`,
         },
       ],
       isExported: true,

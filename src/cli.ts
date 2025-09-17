@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { generateFromSpec } from './index.js';
+import { generateFromSpec, TypeOutputMode } from './index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -27,6 +27,7 @@ program
   .option('-o, --output <dir>', 'Output directory for generated files', './generated')
   .option('-n, --namespace <name>', 'Namespace for the generated client', 'API')
   .option('-a, --axios-instance <name>', 'Name for the Axios instance', 'apiClient')
+  .option('-t, --type-output <mode>', 'Type output mode: single-file, file-per-type, or group-by-tag', 'single-file')
   .option('-H, --header <header>', 'Add header for URL requests (format: "Name: Value")', [])
   .option('--dry-run', 'Show what would be generated without writing files')
   .action(async (spec: string, options) => {
@@ -61,6 +62,21 @@ program
         }
       }
 
+      // Validate type output mode
+      const validModes = ['single-file', 'file-per-type', 'group-by-tag'];
+      if (!validModes.includes(options.typeOutput)) {
+        console.error(`❌ Error: Invalid type output mode "${options.typeOutput}". Valid modes are: ${validModes.join(', ')}`);
+        process.exit(1);
+      }
+
+      // Map string to enum value
+      const typeOutputModeMap: Record<string, TypeOutputMode> = {
+        'single-file': TypeOutputMode.SingleFile,
+        'file-per-type': TypeOutputMode.FilePerType,
+        'group-by-tag': TypeOutputMode.GroupByTag,
+      };
+      const typeOutputMode = typeOutputModeMap[options.typeOutput];
+
       // Get absolute paths
       const inputSpec = isUrl ? spec : path.resolve(spec);
       const outputDir = path.resolve(options.output);
@@ -71,12 +87,27 @@ program
       }
       console.log(`📁 Output directory: ${outputDir}`);
       console.log(`🏷️  Namespace: ${options.namespace}`);
-      console.log(`⚙️  Axios instance: ${options.axiosInstance}\n`);
+      console.log(`⚙️  Axios instance: ${options.axiosInstance}`);
+      console.log(`📦 Type output mode: ${options.typeOutput}\n`);
 
       if (options.dryRun) {
         console.log('🔍 Dry run mode - no files will be written\n');
         console.log('Would generate:');
-        console.log(`  ${outputDir}/types.ts - TypeScript interfaces`);
+
+        switch (options.typeOutput) {
+          case 'file-per-type':
+            console.log(`  ${outputDir}/types.ts - Re-exports all types`);
+            console.log(`  ${outputDir}/types/*.ts - Individual type files`);
+            break;
+          case 'group-by-tag':
+            console.log(`  ${outputDir}/types.ts - Re-exports all types`);
+            console.log(`  ${outputDir}/types/*.ts - Types grouped by tag/category`);
+            break;
+          default:
+            console.log(`  ${outputDir}/types.ts - All TypeScript interfaces`);
+            break;
+        }
+
         console.log(`  ${outputDir}/client.ts - Axios client class`);
         console.log(`  ${outputDir}/index.ts - Exports and factory function`);
         return;
@@ -88,12 +119,27 @@ program
         outputDir,
         namespace: options.namespace,
         axiosInstanceName: options.axiosInstance,
+        typeOutputMode,
         headers: Object.keys(headers).length > 0 ? headers : undefined
       });
 
       console.log('✅ Generation completed successfully!\n');
       console.log('Generated files:');
-      console.log(`  📄 ${path.relative(process.cwd(), outputDir)}/types.ts`);
+
+      switch (options.typeOutput) {
+        case 'file-per-type':
+          console.log(`  📄 ${path.relative(process.cwd(), outputDir)}/types.ts (re-exports)`);
+          console.log(`  📁 ${path.relative(process.cwd(), outputDir)}/types/*.ts (individual type files)`);
+          break;
+        case 'group-by-tag':
+          console.log(`  📄 ${path.relative(process.cwd(), outputDir)}/types.ts (re-exports)`);
+          console.log(`  📁 ${path.relative(process.cwd(), outputDir)}/types/*.ts (grouped type files)`);
+          break;
+        default:
+          console.log(`  📄 ${path.relative(process.cwd(), outputDir)}/types.ts`);
+          break;
+      }
+
       console.log(`  📄 ${path.relative(process.cwd(), outputDir)}/client.ts`);
       console.log(`  📄 ${path.relative(process.cwd(), outputDir)}/index.ts\n`);
 
@@ -234,11 +280,20 @@ program
     console.log('🏷️  Custom namespace:');
     console.log('   openapi-gen generate ./api.yaml -n MyAPI\n');
 
+    console.log('📦 Type output modes:');
+    console.log('   # Single file (default):');
+    console.log('   openapi-gen generate ./api.yaml\n');
+    console.log('   # One file per type:');
+    console.log('   openapi-gen generate ./api.yaml -t file-per-type\n');
+    console.log('   # Group by tag/category:');
+    console.log('   openapi-gen generate ./api.yaml -t group-by-tag\n');
+
     console.log('⚙️  All options:');
     console.log('   openapi-gen generate ./api.yaml \\');
     console.log('     --output ./src/generated \\');
     console.log('     --namespace GitHubAPI \\');
-    console.log('     --axios-instance githubClient\n');
+    console.log('     --axios-instance githubClient \\');
+    console.log('     --type-output file-per-type\n');
 
     console.log('🔍 Dry run (preview):');
     console.log('   openapi-gen generate ./api.yaml --dry-run\n');
