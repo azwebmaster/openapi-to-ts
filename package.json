@@ -11,6 +11,9 @@
     "openapi-to-ts": "dist/cli.js",
     "ott": "dist/cli.js"
   },
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "import": "./dist/index.js",
