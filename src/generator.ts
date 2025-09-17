@@ -794,33 +794,52 @@ export class OpenAPIGenerator {
     const pathParams: string[] = [];
     const queryParams: string[] = [];
     const headerParams: string[] = [];
+    const nonPathParams: any[] = [];
 
+    // Separate path parameters from others
     for (const param of parameters) {
       const paramName = this.toPropertyName(param.name);
       const paramType = this.getTypeString(param.schema);
 
-      methodParams.push({
-        name: paramName,
-        type: paramType,
-        hasQuestionToken: !param.required,
-      });
-
       if (param.in === 'path') {
+        // Add path parameters as individual method parameters
+        methodParams.push({
+          name: paramName,
+          type: paramType,
+          hasQuestionToken: !param.required,
+        });
         pathParams.push(paramName);
       } else if (param.in === 'query') {
         queryParams.push(paramName);
+        nonPathParams.push({
+          name: paramName,
+          type: paramType,
+          required: param.required,
+          description: param.description,
+        });
       } else if (param.in === 'header') {
         headerParams.push(paramName);
+        nonPathParams.push({
+          name: paramName,
+          type: paramType,
+          required: param.required,
+          description: param.description,
+        });
       }
     }
 
-    if (requestBody) {
-      const contentType = Object.keys(requestBody.content || {})[0];
-      const schema = requestBody.content?.[contentType]?.schema;
+    // Create parameter type interface if there are non-path parameters or request body
+    const hasNonPathParams = nonPathParams.length > 0 || requestBody;
+    let paramsTypeName = '';
+
+    if (hasNonPathParams) {
+      paramsTypeName = `${this.toTypeName(methodName)}Params`;
+      this.generateParameterInterface(classDeclaration.getSourceFile(), paramsTypeName, nonPathParams, requestBody);
+
       methodParams.push({
-        name: 'data',
-        type: this.getTypeString(schema),
-        hasQuestionToken: !requestBody.required,
+        name: 'params',
+        type: paramsTypeName,
+        hasQuestionToken: nonPathParams.every(p => !p.required) && (!requestBody || !requestBody.required),
       });
     }
 
@@ -853,38 +872,44 @@ export class OpenAPIGenerator {
 
     // Parameters documentation
     const paramDocs: string[] = [];
+
+    // Document path parameters individually
     for (const param of parameters) {
-      const paramName = this.toPropertyName(param.name);
-      let paramDoc = `@param ${paramName}`;
+      if (param.in === 'path') {
+        const paramName = this.toPropertyName(param.name);
+        let paramDoc = `@param ${paramName}`;
 
-      if (param.description) {
-        paramDoc += ` ${param.description}`;
+        if (param.description) {
+          paramDoc += ` ${param.description}`;
+        }
+
+        // Add parameter constraints
+        const constraints: string[] = [];
+        if (param.schema) {
+          if (param.schema.format) constraints.push(`Format: ${param.schema.format}`);
+          if (param.schema.minimum !== undefined) constraints.push(`Min: ${param.schema.minimum}`);
+          if (param.schema.maximum !== undefined) constraints.push(`Max: ${param.schema.maximum}`);
+          if (param.schema.enum) constraints.push(`Values: ${param.schema.enum.join(', ')}`);
+          if (param.schema.example !== undefined) constraints.push(`Example: ${param.schema.example}`);
+        }
+
+        if (constraints.length > 0) {
+          paramDoc += ` (${constraints.join(', ')})`;
+        }
+
+        paramDocs.push(paramDoc);
       }
-
-      // Add parameter constraints
-      const constraints: string[] = [];
-      if (param.schema) {
-        if (param.schema.format) constraints.push(`Format: ${param.schema.format}`);
-        if (param.schema.minimum !== undefined) constraints.push(`Min: ${param.schema.minimum}`);
-        if (param.schema.maximum !== undefined) constraints.push(`Max: ${param.schema.maximum}`);
-        if (param.schema.enum) constraints.push(`Values: ${param.schema.enum.join(', ')}`);
-        if (param.schema.example !== undefined) constraints.push(`Example: ${param.schema.example}`);
-      }
-
-      if (constraints.length > 0) {
-        paramDoc += ` (${constraints.join(', ')})`;
-      }
-
-      paramDocs.push(paramDoc);
     }
 
-    // Request body documentation
-    if (requestBody) {
-      let bodyDoc = '@param data Request body';
-      if (requestBody.description) {
-        bodyDoc += ` - ${requestBody.description}`;
-      }
-      paramDocs.push(bodyDoc);
+    // Document params object if it exists
+    if (hasNonPathParams) {
+      let paramsDoc = `@param params Parameters object containing`;
+      const paramTypes: string[] = [];
+      if (queryParams.length > 0) paramTypes.push('query parameters');
+      if (headerParams.length > 0) paramTypes.push('headers');
+      if (requestBody) paramTypes.push('request body data');
+      paramsDoc += ` ${paramTypes.join(', ')}`;
+      paramDocs.push(paramsDoc);
     }
 
     // Config parameter
@@ -917,12 +942,17 @@ export class OpenAPIGenerator {
 
     const statements: string[] = [];
 
-    if (queryParams.length > 0) {
-      statements.push(`const params = { ${queryParams.join(', ')} };`);
-    }
+    // Extract parameters from params object if it exists
+    if (hasNonPathParams) {
+      if (queryParams.length > 0) {
+        const queryParamsList = queryParams.map(p => `${p}: params.${p}`).join(', ');
+        statements.push(`const queryParams = { ${queryParamsList} };`);
+      }
 
-    if (headerParams.length > 0) {
-      statements.push(`const headers = { ${headerParams.join(', ')} };`);
+      if (headerParams.length > 0) {
+        const headerParamsList = headerParams.map(p => `${p}: params.${p}`).join(', ');
+        statements.push(`const headers = { ${headerParamsList} };`);
+      }
     }
 
     let axiosCall = `this.client.${method}(\`${urlTemplate}\``;
@@ -930,7 +960,7 @@ export class OpenAPIGenerator {
     if (method === 'get' || method === 'delete' || method === 'head' || method === 'options') {
       if (queryParams.length > 0 || headerParams.length > 0) {
         const configParts: string[] = [];
-        if (queryParams.length > 0) configParts.push('params');
+        if (queryParams.length > 0) configParts.push('params: queryParams');
         if (headerParams.length > 0) configParts.push('headers');
         configParts.push('...config');
         axiosCall += `, { ${configParts.join(', ')} }`;
@@ -939,14 +969,14 @@ export class OpenAPIGenerator {
       }
     } else {
       if (requestBody) {
-        axiosCall += ', data';
+        axiosCall += hasNonPathParams ? ', params.data' : ', data';
       } else {
         axiosCall += ', undefined';
       }
 
       if (queryParams.length > 0 || headerParams.length > 0) {
         const configParts: string[] = [];
-        if (queryParams.length > 0) configParts.push('params');
+        if (queryParams.length > 0) configParts.push('params: queryParams');
         if (headerParams.length > 0) configParts.push('headers');
         configParts.push('...config');
         axiosCall += `, { ${configParts.join(', ')} }`;
@@ -960,6 +990,35 @@ export class OpenAPIGenerator {
     statements.push(`return ${axiosCall};`);
 
     methodDeclaration.addStatements(statements);
+  }
+
+  private generateParameterInterface(file: SourceFile, typeName: string, nonPathParams: any[], requestBody: any): void {
+    const interfaceDeclaration = file.addInterface({
+      name: typeName,
+      isExported: true,
+    });
+
+    // Add query and header parameters
+    for (const param of nonPathParams) {
+      interfaceDeclaration.addProperty({
+        name: this.toPropertyName(param.name),
+        type: param.type,
+        hasQuestionToken: !param.required,
+        docs: param.description ? [{ description: param.description }] : undefined,
+      });
+    }
+
+    // Add request body as 'data' property
+    if (requestBody) {
+      const contentType = Object.keys(requestBody.content || {})[0];
+      const schema = requestBody.content?.[contentType]?.schema;
+      interfaceDeclaration.addProperty({
+        name: 'data',
+        type: this.getTypeString(schema),
+        hasQuestionToken: !requestBody.required,
+        docs: requestBody.description ? [{ description: requestBody.description }] : undefined,
+      });
+    }
   }
 
   public getResponseType(responses: any): string {
