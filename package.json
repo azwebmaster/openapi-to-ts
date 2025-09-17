@@ -18,6 +18,9 @@
   "scripts": {
     "build": "bun tsc",
     "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
     "generate": "bun run src/index.ts",
     "cli": "bun run src/cli.ts"
   },
@@ -32,6 +35,8 @@
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/ui": "^3.2.4",
     "typescript": "^5.0.0",
     "vitest": "^3.2.4"
   },
