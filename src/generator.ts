@@ -216,7 +216,7 @@ export class OpenAPIGenerator {
     }
   }
 
-  private getTypeString(schema: any): string {
+  public getTypeString(schema: any): string {
     if (!schema) return 'any';
 
     if (schema.$ref) {
@@ -267,7 +267,7 @@ export class OpenAPIGenerator {
     return baseType;
   }
 
-  private getBaseTypeString(schema: any): string {
+  public getBaseTypeString(schema: any): string {
     switch (schema.type) {
       case 'string':
         return schema.enum
@@ -304,7 +304,7 @@ export class OpenAPIGenerator {
     }
   }
 
-  private getPrimitiveType(type: string, schema: any): string {
+  public getPrimitiveType(type: string, schema: any): string {
     switch (type) {
       case 'string':
         return schema.enum
@@ -324,7 +324,7 @@ export class OpenAPIGenerator {
     }
   }
 
-  private generateDiscriminatedUnion(schema: any, types: string[]): string {
+  public generateDiscriminatedUnion(schema: any, types: string[]): string {
     const discriminator = schema.discriminator;
     if (!discriminator || !discriminator.propertyName) {
       return types.join(' | ');
@@ -349,7 +349,7 @@ export class OpenAPIGenerator {
     return types.join(' | ');
   }
 
-  private handleConst(schema: any): string {
+  public handleConst(schema: any): string {
     if (schema.const !== undefined) {
       if (typeof schema.const === 'string') {
         return `"${schema.const}"`;
@@ -727,7 +727,7 @@ export class OpenAPIGenerator {
     methodDeclaration.addStatements(statements);
   }
 
-  private getResponseType(responses: any): string {
+  public getResponseType(responses: any): string {
     const successResponse = responses['200'] || responses['201'] || responses['204'];
     if (!successResponse) return 'any';
 
@@ -773,19 +773,19 @@ export class OpenAPIGenerator {
     });
   }
 
-  private toTypeName(name: string): string {
+  public toTypeName(name: string): string {
     return name.replace(/[-_]([a-z])/g, (_, char) => char.toUpperCase())
       .replace(/^./, c => c.toUpperCase());
   }
 
-  private toPropertyName(name: string): string {
+  public toPropertyName(name: string): string {
     if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name)) {
       return name;
     }
     return `'${name}'`;
   }
 
-  private toMethodName(operationId: string): string {
+  public toMethodName(operationId: string): string {
     return operationId
       .replace(/[^a-zA-Z0-9]/g, '_')
       .replace(/_+/g, '_')
@@ -794,7 +794,7 @@ export class OpenAPIGenerator {
       .replace(/^./, c => c.toLowerCase());
   }
 
-  private generateJSDocComment(schema: any, propertyName?: string): string | undefined {
+  public generateJSDocComment(schema: any, propertyName?: string): string | undefined {
     const parts: string[] = [];
 
     // Main description
