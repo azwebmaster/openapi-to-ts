@@ -1,0 +1,61 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Generate release notes
+      id: release-notes
+      run: |
+        # Get the tag name
+        TAG_NAME=${GITHUB_REF#refs/tags/}
+        echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+        # Generate basic release notes from commits since last tag
+        if git describe --tags --abbrev=0 HEAD~1 >/dev/null 2>&1; then
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1)
+          RELEASE_NOTES=$(git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD)
+        else
+          RELEASE_NOTES=$(git log --pretty=format:"- %s (%h)" --max-count=10)
+        fi
+
+        # Escape newlines for GitHub output
+        RELEASE_NOTES="${RELEASE_NOTES//'%'/'%25'}"
+        RELEASE_NOTES="${RELEASE_NOTES//$'\n'/'%0A'}"
+        RELEASE_NOTES="${RELEASE_NOTES//$'\r'/'%0D'}"
+
+        echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+        echo "## What's Changed" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: actions/github-script@v7
+      env:
+        TAG_NAME: ${{ steps.release-notes.outputs.tag_name }}
+        RELEASE_NOTES: ${{ steps.release-notes.outputs.release_notes }}
+      with:
+        script: |
+          const tagName = process.env.TAG_NAME;
+          const releaseNotes = process.env.RELEASE_NOTES;
+
+          await github.rest.repos.createRelease({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            tag_name: tagName,
+            name: `Release ${tagName}`,
+            body: releaseNotes,
+            draft: false,
+            prerelease: false
+          });

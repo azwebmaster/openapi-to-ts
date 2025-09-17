@@ -1,0 +1,41 @@
+{
+  "name": "@azwebmaster/openapi-to-ts",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "openapi-to-ts": "dist/cli.js",
+    "ott": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "packageManager": "bun@1.2.19",
+  "scripts": {
+    "build": "bun tsc",
+    "test": "vitest run",
+    "generate": "bun run src/index.ts",
+    "cli": "bun run src/cli.ts"
+  },
+  "dependencies": {
+    "@apidevtools/swagger-parser": "^10.1.0",
+    "axios": "^1.7.0",
+    "commander": "^12.1.0",
+    "openapi-types": "^12.1.3",
+    "openapi-typescript": "^7.4.4",
+    "openapi-typescript-codegen": "^0.29.0",
+    "ts-morph": "^24.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.4"
+  },
+  "peerDependencies": {
+    "axios": "^1.0.0"
+  }
+}
