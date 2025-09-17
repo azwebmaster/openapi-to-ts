@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.4
+
+### Patch Changes
+
+- 5a5acbd: add type output option
+
 ## 0.0.3
 
 ### Patch Changes
