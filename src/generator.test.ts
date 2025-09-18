@@ -180,6 +180,21 @@ describe('OpenAPIGenerator', () => {
         const result = generator.toMethodName('get_/users/{id}');
         expect(result).toBe('getUsersId');
       });
+
+      it('should handle namespaced operationId by taking part after first slash', () => {
+        const result = generator.toMethodName('admin/getUser');
+        expect(result).toBe('getUser');
+      });
+
+      it('should handle multiple slashes in operationId', () => {
+        const result = generator.toMethodName('admin/users/getById');
+        expect(result).toBe('usersGetById');
+      });
+
+      it('should handle operationId without namespace', () => {
+        const result = generator.toMethodName('getUser');
+        expect(result).toBe('getUser');
+      });
     });
 
     describe('generateJSDocComment', () => {

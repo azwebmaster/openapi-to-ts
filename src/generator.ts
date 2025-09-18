@@ -245,8 +245,8 @@ export class OpenAPIGenerator {
       }
 
       // Generate all types in this group
-      for (const [name, schema] of Object.entries(groupSchemas)) {
-        this.generateTypeFromSchema(file, name, schema);
+      for (const [typeName, schema] of Object.entries(groupSchemas)) {
+        this.generateTypeFromSchema(file, typeName, schema);
       }
 
       // Add re-export to index file
@@ -669,11 +669,45 @@ export class OpenAPIGenerator {
 
     if (!this.api || !this.api.paths) return;
 
-    const pathGroups = this.groupPathsByTag();
+    // Group operations by namespace (from operationId) and generate namespace properties
+    const namespacedOperations = this.groupOperationsByNamespace();
 
-    for (const [, paths] of Object.entries(pathGroups)) {
-      for (const { path, method, operation } of paths) {
-        this.generateMethod(classDeclaration, path, method, operation);
+    // Collect root namespaces and generate them with all their sub-operations
+    const rootNamespaces = new Set<string>();
+    const allOperations = Array.from(Object.values(namespacedOperations)).flat();
+
+    for (const [namespace, operations] of Object.entries(namespacedOperations)) {
+      if (namespace === 'default') {
+        // Add methods directly to the main class for operations without namespace
+        for (const { path, method, operation } of operations) {
+          this.generateMethod(classDeclaration, path, method, operation);
+        }
+      } else {
+        const rootNamespace = namespace.split('/')[0];
+        rootNamespaces.add(rootNamespace);
+      }
+    }
+
+    // Generate each root namespace with all its sub-operations
+    for (const rootNamespace of rootNamespaces) {
+      const allRootOperations = allOperations.filter(op => 
+        op.operationId.startsWith(rootNamespace + '/')
+      );
+      
+      if (rootNamespace.includes('/')) {
+        // This should not happen since we're taking only the first part
+        this.generateNestedNamespace(classDeclaration, rootNamespace, allRootOperations);
+      } else {
+        // Check if it has nested operations
+        const hasNested = allRootOperations.some(op => 
+          op.operationId.split('/').length > 2
+        );
+        
+        if (hasNested) {
+          this.generateNestedNamespace(classDeclaration, rootNamespace, allRootOperations);
+        } else {
+          this.generateNamespaceProperty(classDeclaration, rootNamespace, allRootOperations);
+        }
       }
     }
   }
@@ -684,7 +718,7 @@ export class OpenAPIGenerator {
     if (!this.api || !this.api.paths) return [];
 
     // Collect types from all operations
-    for (const [path, pathItem] of Object.entries(this.api.paths)) {
+    for (const [, pathItem] of Object.entries(this.api.paths)) {
       const item = pathItem as any;
       for (const method of ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']) {
         if (item[method]) {
@@ -785,8 +819,431 @@ export class OpenAPIGenerator {
     return groups;
   }
 
-  private generateMethod(classDeclaration: any, path: string, method: string, operation: any): void {
-    const methodName = this.toMethodName(operation.operationId || `${method}_${path}`);
+  private groupOperationsByNamespace(): Record<string, Array<{ path: string; method: string; operation: any; operationId: string }>> {
+    const groups: Record<string, Array<{ path: string; method: string; operation: any; operationId: string }>> = {};
+
+    if (!this.api || !this.api.paths) return groups;
+
+    for (const [path, pathItem] of Object.entries(this.api.paths)) {
+      const item = pathItem as any;
+      for (const method of ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']) {
+        if (item[method]) {
+          const operation = item[method];
+          const operationId = operation.operationId || `${method}_${path}`;
+
+          // Extract namespace from operationId by splitting on '/' and creating full namespace path
+          let namespace = 'default';
+          if (operationId.includes('/')) {
+            const parts = operationId.split('/');
+            // Take all parts except the last one as namespace (support nested namespaces)
+            if (parts.length > 1) {
+              namespace = parts.slice(0, -1).join('/');
+            }
+          }
+
+          if (!groups[namespace]) groups[namespace] = [];
+          groups[namespace].push({ path, method, operation, operationId });
+        }
+      }
+    }
+
+    return groups;
+  }
+
+  private generateNamespaceProperty(classDeclaration: any, namespace: string, operations: Array<{ path: string; method: string; operation: any; operationId: string }>): void {
+    const file = classDeclaration.getSourceFile();
+
+    // Create an interface for the namespace methods
+    const namespaceInterfaceName = `${this.toTypeName(namespace)}Operations`;
+    const namespaceInterface = file.addInterface({
+      name: namespaceInterfaceName,
+      isExported: true,
+    });
+
+    // Add JSDoc for the namespace interface
+    namespaceInterface.addJsDoc({
+      description: `${namespace} namespace operations`,
+    });
+
+    // Generate method signatures for the interface
+    for (const { path, method, operation, operationId } of operations) {
+      const methodName = this.toMethodName(operationId);
+      const parameters = operation.parameters || [];
+      const requestBody = operation.requestBody;
+
+      const methodParams: any[] = [];
+      const allParams: any[] = [];
+
+      // Collect all parameters
+      for (const param of parameters) {
+        const paramName = this.toPropertyName(param.name);
+        const paramType = this.getTypeString(param.schema);
+
+        const paramInfo = {
+          name: paramName,
+          type: paramType,
+          required: param.required,
+          description: param.description,
+          in: param.in,
+        };
+
+        allParams.push(paramInfo);
+      }
+
+      // Create parameter type interface if there are any parameters
+      const hasParams = allParams.length > 0;
+      let paramsTypeName = '';
+
+      if (hasParams) {
+        paramsTypeName = `${this.toTypeName(methodName)}Params`;
+        this.generateParameterInterface(file, paramsTypeName, allParams);
+
+        const allRequired = allParams.filter(p => p.required).length > 0;
+        methodParams.push({
+          name: 'params',
+          type: paramsTypeName,
+          hasQuestionToken: !allRequired,
+        });
+      }
+
+      // Add request body as separate parameter
+      if (requestBody) {
+        const contentType = Object.keys(requestBody.content || {})[0];
+        const schema = requestBody.content?.[contentType]?.schema;
+        methodParams.push({
+          name: 'data',
+          type: this.getTypeString(schema),
+          hasQuestionToken: !requestBody.required,
+        });
+      }
+
+      methodParams.push({
+        name: 'config',
+        type: 'AxiosRequestConfig',
+        hasQuestionToken: true,
+      });
+
+      const responseType = this.getResponseType(operation.responses);
+
+      // Add method signature to interface
+      namespaceInterface.addMethod({
+        name: methodName,
+        parameters: methodParams,
+        returnType: `Promise<AxiosResponse<${responseType}>>`,
+        docs: operation.summary ? [{ description: operation.summary }] : undefined,
+      });
+    }
+
+    // Add the namespace property to the main class
+    classDeclaration.addProperty({
+      name: namespace,
+      type: namespaceInterfaceName,
+      isReadonly: true,
+      scope: 'public' as any,
+      docs: [{ description: `${namespace} namespace operations` }],
+    });
+
+    // Initialize the namespace property in the constructor
+    const constructor = classDeclaration.getConstructors()[0];
+    if (constructor) {
+      const statements = constructor.getStatements();
+      const initStatement = `this.${namespace} = {
+${operations.map(({ operationId }) => {
+        const methodName = this.toMethodName(operationId);
+        return `      ${methodName}: this.${namespace}_${methodName}.bind(this)`;
+      }).join(',\n')}
+    };`;
+
+      constructor.addStatements([initStatement]);
+    }
+
+    // Generate the actual implementation methods as private methods
+    for (const { path, method, operation, operationId } of operations) {
+      const methodName = this.toMethodName(operationId);
+      this.generateMethod(classDeclaration, path, method, operation, `${namespace}_${methodName}`);
+    }
+  }
+
+  private generateNestedNamespace(classDeclaration: any, namespacePath: string, operations: Array<{ path: string; method: string; operation: any; operationId: string }>): void {
+    const file = classDeclaration.getSourceFile();
+    const namespaceParts = namespacePath.split('/');
+
+    // Collect ALL operations that start with the root namespace, not just the exact path
+    const rootNamespace = namespaceParts[0];
+    const allRootOperations = operations.filter(op => 
+      op.operationId.startsWith(rootNamespace + '/')
+    );
+
+    // Build the nested namespace structure
+    this.buildNestedNamespaceStructure(classDeclaration, namespaceParts, allRootOperations);
+  }
+
+  private buildNestedNamespaceStructure(classDeclaration: any, namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>): void {
+    const file = classDeclaration.getSourceFile();
+    
+    // Create interfaces for each level of nesting
+    this.createNestedInterfaces(file, namespaceParts, operations);
+    
+    // Add the root namespace property to the main class if it doesn't exist
+    const rootNamespace = namespaceParts[0];
+    const rootInterfaceName = `${this.toTypeName(rootNamespace)}Operations`;
+    
+    const existingProperty = classDeclaration.getProperty(rootNamespace);
+    if (!existingProperty) {
+      classDeclaration.addProperty({
+        name: rootNamespace,
+        type: rootInterfaceName,
+        isReadonly: true,
+        scope: 'public' as any,
+        docs: [{ description: `${rootNamespace} namespace operations` }],
+      });
+
+      // Initialize in constructor
+      const constructor = classDeclaration.getConstructors()[0];
+      if (constructor) {
+        // Collect all operations that start with this root namespace
+        const allRootOperations = operations.filter(op => 
+          op.operationId.startsWith(rootNamespace + '/')
+        );
+        const initStatement = this.buildNamespaceInitialization([rootNamespace], allRootOperations);
+        constructor.addStatements([`this.${rootNamespace} = ${initStatement};`]);
+      }
+    }
+
+    // Generate the actual implementation methods as private methods
+    for (const { path, method, operation, operationId } of operations) {
+      const methodName = this.toMethodName(operationId);
+      // Use the full operation namespace path, not just the initial namespaceParts
+      const fullNamespacePath = operationId.split('/').slice(0, -1); // All parts except method name
+      const privateMethodName = this.getPrivateMethodName(fullNamespacePath, methodName);
+      this.generateMethod(classDeclaration, path, method, operation, privateMethodName);
+    }
+  }
+
+  private createNestedInterfaces(file: SourceFile, namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>): void {
+    // Find all unique namespace levels in the operations
+    const allNamespaceLevels = new Set<string>();
+    
+    for (const operation of operations) {
+      const opParts = operation.operationId.split('/');
+      if (opParts.length > 1) {
+        // Add all namespace levels for this operation
+        for (let i = 1; i < opParts.length; i++) {
+          const namespacePath = opParts.slice(0, i).join('/');
+          allNamespaceLevels.add(namespacePath);
+        }
+      }
+    }
+
+    // Convert to sorted array for consistent ordering
+    const sortedLevels = Array.from(allNamespaceLevels).sort();
+
+    // Create interfaces for each namespace level
+    for (const namespacePath of sortedLevels) {
+      const namespacePathParts = namespacePath.split('/');
+      const interfaceName = `${this.toTypeName(namespacePathParts.join('_'))}Operations`;
+      
+      // Check if interface already exists
+      if (file.getInterface(interfaceName)) {
+        continue;
+      }
+
+      const interfaceDeclaration = file.addInterface({
+        name: interfaceName,
+        isExported: true,
+      });
+
+      interfaceDeclaration.addJsDoc({
+        description: `${namespacePath} namespace operations`,
+      });
+
+      // Find direct methods at this level (not in sub-namespaces)
+      const directMethods = operations.filter(op => {
+        const opParts = op.operationId.split('/');
+        return opParts.slice(0, -1).join('/') === namespacePath;
+      });
+
+      // Add method signatures for direct methods
+      for (const { path, method, operation, operationId } of directMethods) {
+        this.addMethodSignatureToInterface(interfaceDeclaration, path, method, operation, operationId);
+      }
+
+      // Find sub-namespaces at this level
+      const subNamespaces = new Set<string>();
+      for (const operation of operations) {
+        const opParts = operation.operationId.split('/');
+        if (opParts.length > namespacePathParts.length + 1) {
+          const nextLevelParts = opParts.slice(0, namespacePathParts.length + 1);
+          if (nextLevelParts.slice(0, namespacePathParts.length).join('/') === namespacePath) {
+            subNamespaces.add(nextLevelParts[namespacePathParts.length]);
+          }
+        }
+      }
+
+      // Add properties for sub-namespaces
+      for (const subNamespace of subNamespaces) {
+        const subNamespacePath = [...namespacePathParts, subNamespace];
+        const subInterfaceName = `${this.toTypeName(subNamespacePath.join('_'))}Operations`;
+        
+        interfaceDeclaration.addProperty({
+          name: subNamespace,
+          type: subInterfaceName,
+          isReadonly: true,
+          docs: [{ description: `${subNamespace} sub-namespace` }],
+        });
+      }
+    }
+  }
+
+  private addMethodSignatureToInterface(interfaceDeclaration: any, path: string, method: string, operation: any, operationId: string): void {
+    const methodName = this.toMethodName(operationId);
+    const parameters = operation.parameters || [];
+    const requestBody = operation.requestBody;
+
+    const methodParams: any[] = [];
+    const allParams: any[] = [];
+
+    // Collect all parameters
+    for (const param of parameters) {
+      const paramName = this.toPropertyName(param.name);
+      const paramType = this.getTypeString(param.schema);
+
+      const paramInfo = {
+        name: paramName,
+        type: paramType,
+        required: param.required,
+        description: param.description,
+        in: param.in,
+      };
+
+      allParams.push(paramInfo);
+    }
+
+    // Create parameter type interface if there are any parameters
+    const hasParams = allParams.length > 0;
+    let paramsTypeName = '';
+
+    if (hasParams) {
+      paramsTypeName = `${this.toTypeName(methodName)}Params`;
+      this.generateParameterInterface(interfaceDeclaration.getSourceFile(), paramsTypeName, allParams);
+
+      const allRequired = allParams.filter(p => p.required).length > 0;
+      methodParams.push({
+        name: 'params',
+        type: paramsTypeName,
+        hasQuestionToken: !allRequired,
+      });
+    }
+
+    // Add request body as separate parameter
+    if (requestBody) {
+      const contentType = Object.keys(requestBody.content || {})[0];
+      const schema = requestBody.content?.[contentType]?.schema;
+      methodParams.push({
+        name: 'data',
+        type: this.getTypeString(schema),
+        hasQuestionToken: !requestBody.required,
+      });
+    }
+
+    methodParams.push({
+      name: 'config',
+      type: 'AxiosRequestConfig',
+      hasQuestionToken: true,
+    });
+
+    const responseType = this.getResponseType(operation.responses);
+
+    // Add method signature to interface
+    interfaceDeclaration.addMethod({
+      name: methodName,
+      parameters: methodParams,
+      returnType: `Promise<AxiosResponse<${responseType}>>`,
+      docs: operation.summary ? [{ description: operation.summary }] : undefined,
+    });
+  }
+
+  private buildNamespaceInitialization(namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>): string {
+    // Build a tree structure for the namespace
+    const tree = this.buildNamespaceTree(namespaceParts, operations);
+    const content = this.generateNamespaceObjectFromTree(tree);
+    return `{\n${content}\n    }`;
+  }
+
+  private buildNamespaceTree(namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>): any {
+    const tree: any = {};
+    
+    // Process all operations that start with our root namespace
+    const rootNamespace = namespaceParts[0];
+    
+    for (const operation of operations) {
+      const opParts = operation.operationId.split('/');
+      
+      // Only process operations that start with our root namespace
+      if (!operation.operationId.startsWith(rootNamespace + '/')) continue;
+      
+      // Navigate/create the tree structure starting from the root
+      let current = tree;
+      const pathFromRoot = opParts.slice(1); // Remove the root namespace part (already handled)
+      
+      // Navigate/create intermediate levels
+      for (let i = 0; i < pathFromRoot.length - 1; i++) {
+        const part = pathFromRoot[i];
+        if (!current[part]) {
+          current[part] = {};
+        }
+        current = current[part];
+      }
+      
+      // Add the method at the final level
+      const methodName = this.toMethodName(operation.operationId);
+      const fullNamespacePath = opParts.slice(0, -1); // All parts except method name
+      const privateMethodName = this.getPrivateMethodName(fullNamespacePath, methodName);
+      
+      if (!current._methods) {
+        current._methods = [];
+      }
+      current._methods.push({
+        name: methodName,
+        privateMethod: privateMethodName
+      });
+    }
+    
+    return tree;
+  }
+
+  private generateNamespaceObjectFromTree(tree: any, indent: string = '    '): string {
+    const parts: string[] = [];
+    
+    // Add methods at this level
+    if (tree._methods) {
+      for (const method of tree._methods) {
+        parts.push(`${indent}  ${method.name}: this.${method.privateMethod}.bind(this)`);
+      }
+    }
+    
+    // Add sub-namespaces
+    for (const [key, value] of Object.entries(tree)) {
+      if (key === '_methods') continue;
+      
+      const subNamespace = this.generateNamespaceObjectFromTree(value, indent + '  ');
+      parts.push(`${indent}  ${key}: {\n${subNamespace}\n${indent}  }`);
+    }
+    
+    if (parts.length === 0) {
+      return '';
+    }
+    
+    return parts.join(',\n');
+  }
+
+  private getPrivateMethodName(namespaceParts: string[], methodName: string): string {
+    return `${namespaceParts.join('_')}_${methodName}`;
+  }
+
+  private generateMethod(classDeclaration: any, path: string, method: string, operation: any, customMethodName?: string): void {
+    const baseMethodName = this.toMethodName(operation.operationId || `${method}_${path}`);
+    const methodName = customMethodName || baseMethodName;
     const parameters = operation.parameters || [];
     const requestBody = operation.requestBody;
 
@@ -794,52 +1251,56 @@ export class OpenAPIGenerator {
     const pathParams: string[] = [];
     const queryParams: string[] = [];
     const headerParams: string[] = [];
-    const nonPathParams: any[] = [];
+    const allParams: any[] = [];
 
-    // Separate path parameters from others
+    // Collect all parameters
     for (const param of parameters) {
       const paramName = this.toPropertyName(param.name);
       const paramType = this.getTypeString(param.schema);
 
+      const paramInfo = {
+        name: paramName,
+        type: paramType,
+        required: param.required,
+        description: param.description,
+        in: param.in,
+      };
+
+      allParams.push(paramInfo);
+
       if (param.in === 'path') {
-        // Add path parameters as individual method parameters
-        methodParams.push({
-          name: paramName,
-          type: paramType,
-          hasQuestionToken: !param.required,
-        });
         pathParams.push(paramName);
       } else if (param.in === 'query') {
         queryParams.push(paramName);
-        nonPathParams.push({
-          name: paramName,
-          type: paramType,
-          required: param.required,
-          description: param.description,
-        });
       } else if (param.in === 'header') {
         headerParams.push(paramName);
-        nonPathParams.push({
-          name: paramName,
-          type: paramType,
-          required: param.required,
-          description: param.description,
-        });
       }
     }
 
-    // Create parameter type interface if there are non-path parameters or request body
-    const hasNonPathParams = nonPathParams.length > 0 || requestBody;
+    // Create parameter type interface if there are any parameters (excluding request body)
+    const hasParams = allParams.length > 0;
     let paramsTypeName = '';
 
-    if (hasNonPathParams) {
-      paramsTypeName = `${this.toTypeName(methodName)}Params`;
-      this.generateParameterInterface(classDeclaration.getSourceFile(), paramsTypeName, nonPathParams, requestBody);
+    if (hasParams) {
+      paramsTypeName = `${this.toTypeName(baseMethodName)}Params`;
+      this.generateParameterInterface(classDeclaration.getSourceFile(), paramsTypeName, allParams);
 
+      const allRequired = allParams.filter(p => p.required).length > 0;
       methodParams.push({
         name: 'params',
         type: paramsTypeName,
-        hasQuestionToken: nonPathParams.every(p => !p.required) && (!requestBody || !requestBody.required),
+        hasQuestionToken: !allRequired,
+      });
+    }
+
+    // Add request body as separate parameter
+    if (requestBody) {
+      const contentType = Object.keys(requestBody.content || {})[0];
+      const schema = requestBody.content?.[contentType]?.schema;
+      methodParams.push({
+        name: 'data',
+        type: this.getTypeString(schema),
+        hasQuestionToken: !requestBody.required,
       });
     }
 
@@ -856,6 +1317,7 @@ export class OpenAPIGenerator {
       isAsync: true,
       parameters: methodParams,
       returnType: `Promise<AxiosResponse<${responseType}>>`,
+      scope: customMethodName ? 'private' as any : 'public' as any,
     });
 
     // Generate comprehensive JSDoc for the method
@@ -873,43 +1335,24 @@ export class OpenAPIGenerator {
     // Parameters documentation
     const paramDocs: string[] = [];
 
-    // Document path parameters individually
-    for (const param of parameters) {
-      if (param.in === 'path') {
-        const paramName = this.toPropertyName(param.name);
-        let paramDoc = `@param ${paramName}`;
-
-        if (param.description) {
-          paramDoc += ` ${param.description}`;
-        }
-
-        // Add parameter constraints
-        const constraints: string[] = [];
-        if (param.schema) {
-          if (param.schema.format) constraints.push(`Format: ${param.schema.format}`);
-          if (param.schema.minimum !== undefined) constraints.push(`Min: ${param.schema.minimum}`);
-          if (param.schema.maximum !== undefined) constraints.push(`Max: ${param.schema.maximum}`);
-          if (param.schema.enum) constraints.push(`Values: ${param.schema.enum.join(', ')}`);
-          if (param.schema.example !== undefined) constraints.push(`Example: ${param.schema.example}`);
-        }
-
-        if (constraints.length > 0) {
-          paramDoc += ` (${constraints.join(', ')})`;
-        }
-
-        paramDocs.push(paramDoc);
-      }
-    }
-
     // Document params object if it exists
-    if (hasNonPathParams) {
+    if (hasParams) {
       let paramsDoc = `@param params Parameters object containing`;
       const paramTypes: string[] = [];
+      if (pathParams.length > 0) paramTypes.push('path parameters');
       if (queryParams.length > 0) paramTypes.push('query parameters');
       if (headerParams.length > 0) paramTypes.push('headers');
-      if (requestBody) paramTypes.push('request body data');
       paramsDoc += ` ${paramTypes.join(', ')}`;
       paramDocs.push(paramsDoc);
+    }
+
+    // Request body documentation
+    if (requestBody) {
+      let bodyDoc = '@param data Request body';
+      if (requestBody.description) {
+        bodyDoc += ` - ${requestBody.description}`;
+      }
+      paramDocs.push(bodyDoc);
     }
 
     // Config parameter
@@ -937,20 +1380,33 @@ export class OpenAPIGenerator {
 
     let urlTemplate = path;
     for (const param of pathParams) {
-      urlTemplate = urlTemplate.replace(`{${param}}`, `\${${param}}`);
+      urlTemplate = urlTemplate.replace(`{${param}}`, `\${params.${param}}`);
     }
 
     const statements: string[] = [];
 
     // Extract parameters from params object if it exists
-    if (hasNonPathParams) {
+    if (hasParams) {
+      const allRequired = allParams.filter(p => p.required).length > 0;
+      const paramsIsOptional = !allRequired;
+
       if (queryParams.length > 0) {
-        const queryParamsList = queryParams.map(p => `${p}: params.${p}`).join(', ');
+        const queryParamsList = queryParams.map(p => {
+          const param = allParams.find(ap => this.toPropertyName(ap.name) === p);
+          const isRequired = param?.required;
+          const accessor = (paramsIsOptional || !isRequired) ? `params?.${p}` : `params.${p}`;
+          return `${p}: ${accessor}`;
+        }).join(', ');
         statements.push(`const queryParams = { ${queryParamsList} };`);
       }
 
       if (headerParams.length > 0) {
-        const headerParamsList = headerParams.map(p => `${p}: params.${p}`).join(', ');
+        const headerParamsList = headerParams.map(p => {
+          const param = allParams.find(ap => this.toPropertyName(ap.name) === p);
+          const isRequired = param?.required;
+          const accessor = (paramsIsOptional || !isRequired) ? `params?.${p}` : `params.${p}`;
+          return `${p}: ${accessor}`;
+        }).join(', ');
         statements.push(`const headers = { ${headerParamsList} };`);
       }
     }
@@ -969,7 +1425,7 @@ export class OpenAPIGenerator {
       }
     } else {
       if (requestBody) {
-        axiosCall += hasNonPathParams ? ', params.data' : ', data';
+        axiosCall += ', data';
       } else {
         axiosCall += ', undefined';
       }
@@ -992,31 +1448,34 @@ export class OpenAPIGenerator {
     methodDeclaration.addStatements(statements);
   }
 
-  private generateParameterInterface(file: SourceFile, typeName: string, nonPathParams: any[], requestBody: any): void {
+  private generateParameterInterface(file: SourceFile, typeName: string, allParams: any[]): void {
+    // Check if interface already exists to avoid duplicates
+    const existingInterface = file.getInterface(typeName);
+    if (existingInterface) {
+      return;
+    }
+
     const interfaceDeclaration = file.addInterface({
       name: typeName,
       isExported: true,
     });
 
-    // Add query and header parameters
-    for (const param of nonPathParams) {
+    // Add all parameters (path, query, header) - excluding request body
+    for (const param of allParams) {
+      let description = param.description || '';
+      if (param.in === 'path') {
+        description = description ? `${description} (path parameter)` : 'Path parameter';
+      } else if (param.in === 'query') {
+        description = description ? `${description} (query parameter)` : 'Query parameter';
+      } else if (param.in === 'header') {
+        description = description ? `${description} (header parameter)` : 'Header parameter';
+      }
+
       interfaceDeclaration.addProperty({
         name: this.toPropertyName(param.name),
         type: param.type,
         hasQuestionToken: !param.required,
-        docs: param.description ? [{ description: param.description }] : undefined,
-      });
-    }
-
-    // Add request body as 'data' property
-    if (requestBody) {
-      const contentType = Object.keys(requestBody.content || {})[0];
-      const schema = requestBody.content?.[contentType]?.schema;
-      interfaceDeclaration.addProperty({
-        name: 'data',
-        type: this.getTypeString(schema),
-        hasQuestionToken: !requestBody.required,
-        docs: requestBody.description ? [{ description: requestBody.description }] : undefined,
+        docs: description ? [{ description }] : undefined,
       });
     }
   }
@@ -1086,7 +1545,19 @@ export class OpenAPIGenerator {
   }
 
   public toMethodName(operationId: string): string {
-    return operationId
+    // Handle namespace patterns: if operationId looks like clean namespace/method pattern,
+    // take everything after the first '/'. Otherwise, treat the whole thing as method name.
+    let methodPart = operationId;
+    if (operationId.includes('/')) {
+      const parts = operationId.split('/');
+      // If first part looks like a clean namespace (alphanumeric), use everything after first slash
+      if (parts[0] && /^[a-zA-Z][a-zA-Z0-9]*$/.test(parts[0])) {
+        methodPart = parts.slice(1).join('/');
+      }
+      // Otherwise treat the whole operationId as the method name
+    }
+
+    return methodPart
       .replace(/[^a-zA-Z0-9]/g, '_')
       .replace(/_+/g, '_')
       .replace(/^_|_$/g, '')

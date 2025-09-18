@@ -1,0 +1,1321 @@
+openapi: 3.0.3
+info:
+  title: Comprehensive Test API
+  version: 1.0.0
+  description: |
+    A comprehensive OpenAPI specification covering all possible test scenarios
+    for openapi-to-ts generator testing including:
+    - All HTTP methods
+    - Complex data types and schemas
+    - Authentication mechanisms
+    - Parameter types and locations
+    - Response variations
+    - Edge cases and special scenarios
+  contact:
+    name: API Support
+    url: https://example.com/support
+    email: support@example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.example.com/v1
+    description: Production server
+  - url: https://staging-api.example.com/v1
+    description: Staging server
+  - url: http://localhost:3000/v1
+    description: Local development server
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+  - OAuth2: ['read', 'write']
+
+paths:
+  # Basic CRUD operations
+  /users:
+    get:
+      operationId: getUsers
+      summary: Get all users
+      description: Retrieve a paginated list of users
+      tags:
+        - Users
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [name, email, created_at]
+            default: created_at
+        - name: order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: filter
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter users by name or email
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+                  meta:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      filtered:
+                        type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      operationId: createUser
+      summary: Create a new user
+      description: Create a new user account
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: User already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: The unique identifier of the user
+
+    get:
+      operationId: getUserById
+      summary: Get user by ID
+      description: Retrieve a specific user by their ID
+      tags:
+        - Users
+      responses:
+        '200':
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      operationId: updateUser
+      summary: Update user
+      description: Update an existing user (full update)
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+    patch:
+      operationId: patchUser
+      summary: Partially update user
+      description: Partially update an existing user
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchUserRequest'
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      operationId: deleteUser
+      summary: Delete user
+      description: Delete an existing user
+      tags:
+        - Users
+      responses:
+        '204':
+          description: User deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Cannot delete user with active orders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Complex parameter scenarios
+  /search:
+    get:
+      operationId: searchContent
+      summary: Search content
+      description: Search across multiple content types with complex filtering
+      tags:
+        - Search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Search query
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [users, posts, comments, products]
+          style: form
+          explode: true
+        - name: date_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: tags
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+        - name: context
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [web, mobile, api]
+            default: web
+          description: Search context
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResults'
+
+  # File upload scenarios
+  /upload:
+    post:
+      operationId: uploadFile
+      summary: Upload file
+      description: Upload a single file
+      tags:
+        - Files
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                description:
+                  type: string
+                  maxLength: 500
+                tags:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - file
+      responses:
+        '201':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileInfo'
+        '413':
+          description: File too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /upload/multiple:
+    post:
+      operationId: uploadMultipleFiles
+      summary: Upload multiple files
+      description: Upload multiple files in one request
+      tags:
+        - Files
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  maxItems: 10
+                metadata:
+                  type: string
+                  format: json
+              required:
+                - files
+      responses:
+        '201':
+          description: Files uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FileInfo'
+
+  # Complex response scenarios
+  /data/export:
+    get:
+      operationId: exportData
+      summary: Export data
+      description: Export data in various formats
+      tags:
+        - Data
+      parameters:
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [json, csv, xml, pdf]
+        - name: include_metadata
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Data export
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportData'
+            text/csv:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
+  # Webhook scenarios
+  /webhooks:
+    get:
+      operationId: getWebhooks
+      summary: Get webhooks
+      description: Get all configured webhooks
+      tags:
+        - Webhooks
+      responses:
+        '200':
+          description: List of webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Webhook'
+
+    post:
+      operationId: createWebhook
+      summary: Create webhook
+      description: Create a new webhook
+      tags:
+        - Webhooks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+
+  # Edge case: No operation ID
+  /health:
+    get:
+      summary: Health check
+      description: Check API health status
+      tags:
+        - Health
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  # Edge cases: operationIds with special characters
+  /api/v1/resources:
+    get:
+      operationId: api/v1/getResources
+      summary: Get resources with slash in operationId
+      description: Test operationId containing forward slashes
+      tags:
+        - EdgeCases
+      responses:
+        '200':
+          description: Resources list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /namespaced/action:
+    post:
+      operationId: namespace/action/create
+      summary: Namespaced action
+      description: Test deeply nested operationId with multiple slashes
+      tags:
+        - EdgeCases
+      responses:
+        '201':
+          description: Action created
+
+  /special-chars:
+    get:
+      operationId: get-special_chars.endpoint
+      summary: Special characters in operationId
+      description: Test operationId with hyphens, underscores, and dots
+      tags:
+        - EdgeCases
+      responses:
+        '200':
+          description: Success
+
+  /numbers123:
+    get:
+      operationId: get123Numbers456
+      summary: Numbers in operationId
+      description: Test operationId with numbers mixed in
+      tags:
+        - EdgeCases
+      responses:
+        '200':
+          description: Success
+
+  # Polymorphic responses
+  /notifications:
+    get:
+      operationId: getNotifications
+      summary: Get notifications
+      description: Get user notifications of various types
+      tags:
+        - Notifications
+      responses:
+        '200':
+          description: List of notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  oneOf:
+                    - $ref: '#/components/schemas/EmailNotification'
+                    - $ref: '#/components/schemas/PushNotification'
+                    - $ref: '#/components/schemas/SMSNotification'
+                  discriminator:
+                    propertyName: type
+                    mapping:
+                      email: '#/components/schemas/EmailNotification'
+                      push: '#/components/schemas/PushNotification'
+                      sms: '#/components/schemas/SMSNotification'
+
+  # Recursive/circular reference scenarios
+  /categories:
+    get:
+      operationId: getCategories
+      summary: Get categories
+      description: Get category tree with subcategories
+      tags:
+        - Categories
+      responses:
+        '200':
+          description: Category tree
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+
+  # Complex query parameters
+  /analytics/reports:
+    get:
+      operationId: getAnalyticsReport
+      summary: Get analytics report
+      description: Generate analytics report with complex filtering
+      tags:
+        - Analytics
+      parameters:
+        - name: metrics
+          in: query
+          required: true
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [views, clicks, conversions, revenue]
+            minItems: 1
+          style: form
+          explode: true
+        - name: dimensions
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [date, country, device, source]
+          style: form
+          explode: true
+        - name: filters
+          in: query
+          required: false
+          schema:
+            type: object
+            additionalProperties:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: string
+          style: deepObject
+          explode: true
+        - name: period
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/DateRange'
+          style: deepObject
+          explode: true
+      responses:
+        '200':
+          description: Analytics report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsReport'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    OAuth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://auth.example.com/oauth/authorize
+          tokenUrl: https://auth.example.com/oauth/token
+          scopes:
+            read: Read access
+            write: Write access
+            admin: Admin access
+
+  schemas:
+    # Basic user schemas
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - name
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: John Doe
+        avatar:
+          type: string
+          format: uri
+          nullable: true
+        age:
+          type: integer
+          minimum: 0
+          maximum: 150
+          nullable: true
+        bio:
+          type: string
+          maxLength: 500
+          nullable: true
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+        addresses:
+          type: array
+          items:
+            $ref: '#/components/schemas/Address'
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    CreateUserRequest:
+      type: object
+      required:
+        - email
+        - name
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          format: password
+        age:
+          type: integer
+          minimum: 0
+          maximum: 150
+        bio:
+          type: string
+          maxLength: 500
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+
+    UpdateUserRequest:
+      type: object
+      required:
+        - email
+        - name
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        age:
+          type: integer
+          minimum: 0
+          maximum: 150
+        bio:
+          type: string
+          maxLength: 500
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+
+    PatchUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        age:
+          type: integer
+          minimum: 0
+          maximum: 150
+        bio:
+          type: string
+          maxLength: 500
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+
+    UserPreferences:
+      type: object
+      properties:
+        theme:
+          type: string
+          enum: [light, dark, auto]
+          default: auto
+        language:
+          type: string
+          pattern: '^[a-z]{2}(-[A-Z]{2})?$'
+          default: en
+        notifications:
+          type: object
+          properties:
+            email:
+              type: boolean
+              default: true
+            push:
+              type: boolean
+              default: true
+            sms:
+              type: boolean
+              default: false
+        privacy:
+          type: object
+          properties:
+            profile_visibility:
+              type: string
+              enum: [public, private, friends]
+              default: public
+            show_email:
+              type: boolean
+              default: false
+
+    Address:
+      type: object
+      required:
+        - type
+        - street
+        - city
+        - country
+      properties:
+        type:
+          type: string
+          enum: [home, work, other]
+        street:
+          type: string
+          minLength: 1
+          maxLength: 200
+        city:
+          type: string
+          minLength: 1
+          maxLength: 100
+        state:
+          type: string
+          maxLength: 100
+        postal_code:
+          type: string
+          maxLength: 20
+        country:
+          type: string
+          minLength: 2
+          maxLength: 2
+          pattern: '^[A-Z]{2}$'
+        coordinates:
+          type: object
+          properties:
+            latitude:
+              type: number
+              minimum: -90
+              maximum: 90
+            longitude:
+              type: number
+              minimum: -180
+              maximum: 180
+
+    # Pagination and metadata
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+        total_pages:
+          type: integer
+          minimum: 0
+        total_items:
+          type: integer
+          minimum: 0
+        has_next:
+          type: boolean
+        has_prev:
+          type: boolean
+
+    # Search results
+    SearchResults:
+      type: object
+      properties:
+        query:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+        facets:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/Facet'
+        total:
+          type: integer
+        took:
+          type: integer
+          description: Time taken in milliseconds
+
+    SearchResult:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [user, post, comment, product]
+        title:
+          type: string
+        excerpt:
+          type: string
+        url:
+          type: string
+          format: uri
+        score:
+          type: number
+          minimum: 0
+          maximum: 1
+        highlights:
+          type: array
+          items:
+            type: string
+
+    Facet:
+      type: object
+      properties:
+        value:
+          type: string
+        count:
+          type: integer
+        selected:
+          type: boolean
+
+    # File handling
+    FileInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        original_name:
+          type: string
+        size:
+          type: integer
+          minimum: 0
+        mime_type:
+          type: string
+        url:
+          type: string
+          format: uri
+        thumbnail_url:
+          type: string
+          format: uri
+          nullable: true
+        metadata:
+          type: object
+          properties:
+            width:
+              type: integer
+            height:
+              type: integer
+            duration:
+              type: number
+        uploaded_at:
+          type: string
+          format: date-time
+
+    # Export data
+    ExportData:
+      type: object
+      properties:
+        format:
+          type: string
+          enum: [json, csv, xml, pdf]
+        data:
+          oneOf:
+            - type: array
+              items:
+                type: object
+            - type: string
+        metadata:
+          type: object
+          properties:
+            generated_at:
+              type: string
+              format: date-time
+            total_records:
+              type: integer
+            filters_applied:
+              type: object
+
+    # Webhook schemas
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+            enum: [user.created, user.updated, user.deleted, order.created, order.updated]
+        secret:
+          type: string
+          writeOnly: true
+        is_active:
+          type: boolean
+          default: true
+        retry_config:
+          $ref: '#/components/schemas/RetryConfig'
+        created_at:
+          type: string
+          format: date-time
+
+    CreateWebhookRequest:
+      type: object
+      required:
+        - url
+        - events
+      properties:
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+            enum: [user.created, user.updated, user.deleted, order.created, order.updated]
+          minItems: 1
+        secret:
+          type: string
+          minLength: 10
+        retry_config:
+          $ref: '#/components/schemas/RetryConfig'
+
+    RetryConfig:
+      type: object
+      properties:
+        max_attempts:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 3
+        backoff_multiplier:
+          type: number
+          minimum: 1
+          default: 2
+        initial_delay:
+          type: integer
+          minimum: 100
+          default: 1000
+          description: Initial delay in milliseconds
+
+    # Health status
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+        services:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ServiceHealth'
+
+    ServiceHealth:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [up, down, unknown]
+        response_time:
+          type: number
+          minimum: 0
+        last_check:
+          type: string
+          format: date-time
+
+    # Notification schemas (polymorphic)
+    BaseNotification:
+      type: object
+      required:
+        - id
+        - type
+        - message
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        message:
+          type: string
+        read:
+          type: boolean
+          default: false
+        created_at:
+          type: string
+          format: date-time
+
+    EmailNotification:
+      allOf:
+        - $ref: '#/components/schemas/BaseNotification'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: [email]
+            subject:
+              type: string
+            from:
+              type: string
+              format: email
+
+    PushNotification:
+      allOf:
+        - $ref: '#/components/schemas/BaseNotification'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: [push]
+            title:
+              type: string
+            icon:
+              type: string
+              format: uri
+            action_url:
+              type: string
+              format: uri
+
+    SMSNotification:
+      allOf:
+        - $ref: '#/components/schemas/BaseNotification'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum: [sms]
+            phone_number:
+              type: string
+              pattern: '^\+[1-9]\d{1,14}$'
+
+    # Recursive schema (categories)
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        description:
+          type: string
+        parent_id:
+          type: string
+          format: uuid
+          nullable: true
+        subcategories:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+        product_count:
+          type: integer
+          minimum: 0
+
+    # Analytics schemas
+    DateRange:
+      type: object
+      required:
+        - start_date
+        - end_date
+      properties:
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+
+    AnalyticsReport:
+      type: object
+      properties:
+        period:
+          $ref: '#/components/schemas/DateRange'
+        metrics:
+          type: array
+          items:
+            type: string
+        dimensions:
+          type: array
+          items:
+            type: string
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties:
+              oneOf:
+                - type: string
+                - type: number
+                - type: integer
+        totals:
+          type: object
+          additionalProperties:
+            type: number
+        filters_applied:
+          type: object
+        generated_at:
+          type: string
+          format: date-time
+
+    # Error schemas
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+        trace_id:
+          type: string
+          format: uuid
+
+    ValidationError:
+      type: object
+      required:
+        - code
+        - message
+        - errors
+      properties:
+        code:
+          type: string
+          enum: [validation_error]
+        message:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+
+    FieldError:
+      type: object
+      required:
+        - field
+        - code
+        - message
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+          enum: [required, invalid, too_short, too_long, invalid_format]
+        message:
+          type: string
+        value:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+            - type: array
+            - type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+tags:
+  - name: Users
+    description: User management operations
+  - name: Search
+    description: Search and filtering operations
+  - name: Files
+    description: File upload and management
+  - name: Data
+    description: Data export and import operations
+  - name: Webhooks
+    description: Webhook configuration
+  - name: Health
+    description: API health and monitoring
+  - name: Notifications
+    description: Notification management
+  - name: Categories
+    description: Category hierarchy management
+  - name: Analytics
+    description: Analytics and reporting
