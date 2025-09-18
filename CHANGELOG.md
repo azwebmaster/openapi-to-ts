@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.5
+
+### Patch Changes
+
+- b2ee7a5: add support for namespaced operationIds
+
 ## 0.0.4
 
 ### Patch Changes
