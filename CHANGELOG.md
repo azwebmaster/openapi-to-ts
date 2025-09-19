@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.7
+
+### Patch Changes
+
+- 2832241: fix openapi v2
+
 ## 0.0.6
 
 ### Patch Changes
