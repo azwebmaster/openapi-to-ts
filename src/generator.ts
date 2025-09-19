@@ -728,9 +728,8 @@ export class OpenAPIGenerator {
           // Collect types from parameters
           const parameters = operation.parameters || [];
           for (const param of parameters) {
-            if (param.schema) {
-              this.collectTypesFromSchema(param.schema, usedTypes);
-            }
+            const paramSchema = this.getParameterSchema(param);
+            this.collectTypesFromSchema(paramSchema, usedTypes);
           }
 
           // Collect types from request body
@@ -822,6 +821,7 @@ export class OpenAPIGenerator {
 
   private groupOperationsByNamespace(): Record<string, Array<{ path: string; method: string; operation: any; operationId: string }>> {
     const groups: Record<string, Array<{ path: string; method: string; operation: any; operationId: string }>> = {};
+    const operationIdTracker = new Map<string, number>();
 
     if (!this.api || !this.api.paths) return groups;
 
@@ -830,7 +830,17 @@ export class OpenAPIGenerator {
       for (const method of ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']) {
         if (item[method]) {
           const operation = item[method];
-          const operationId = operation.operationId || `${method}_${path}`;
+          let operationId = operation.operationId || `${method}_${path}`;
+
+          // Handle duplicate operationIds by appending a sequence number
+          const originalOperationId = operationId;
+          if (operationIdTracker.has(originalOperationId)) {
+            const count = operationIdTracker.get(originalOperationId)! + 1;
+            operationIdTracker.set(originalOperationId, count);
+            operationId = `${originalOperationId}${count}`;
+          } else {
+            operationIdTracker.set(originalOperationId, 1);
+          }
 
           // Extract namespace from operationId by splitting on '/' and creating full namespace path
           let namespace = 'default';
@@ -878,7 +888,8 @@ export class OpenAPIGenerator {
       // Collect all parameters
       for (const param of parameters) {
         const paramName = this.toPropertyName(param.name);
-        const paramType = this.getTypeString(param.schema);
+        const paramSchema = this.getParameterSchema(param);
+        const paramType = this.getTypeString(paramSchema);
 
         const paramInfo = {
           name: paramName,
@@ -1107,7 +1118,8 @@ ${operations.map(({ operationId }) => {
     // Collect all parameters
     for (const param of parameters) {
       const paramName = this.toPropertyName(param.name);
-      const paramType = this.getTypeString(param.schema);
+      const paramSchema = this.getParameterSchema(param);
+      const paramType = this.getTypeString(paramSchema);
 
       const paramInfo = {
         name: paramName,
@@ -1257,7 +1269,8 @@ ${operations.map(({ operationId }) => {
     // Collect all parameters
     for (const param of parameters) {
       const paramName = this.toPropertyName(param.name);
-      const paramType = this.getTypeString(param.schema);
+      const paramSchema = this.getParameterSchema(param);
+      const paramType = this.getTypeString(paramSchema);
 
       const paramInfo = {
         name: paramName,
@@ -1564,6 +1577,45 @@ ${operations.map(({ operationId }) => {
       .replace(/^_|_$/g, '')
       .replace(/_([a-z])/g, (_, char) => char.toUpperCase())
       .replace(/^./, c => c.toLowerCase());
+  }
+
+  private getParameterSchema(param: any): any {
+    // OpenAPI v3 has schema property, v2 has type directly on parameter
+    if (param.schema) {
+      return param.schema;
+    }
+
+    // For OpenAPI v2, create a schema object from the parameter properties
+    if (param.type) {
+      const schema: any = {
+        type: param.type
+      };
+
+      // Copy relevant properties from OpenAPI v2 parameter to schema
+      if (param.format) schema.format = param.format;
+      if (param.enum) schema.enum = param.enum;
+      if (param.minimum !== undefined) schema.minimum = param.minimum;
+      if (param.maximum !== undefined) schema.maximum = param.maximum;
+      if (param.minLength !== undefined) schema.minLength = param.minLength;
+      if (param.maxLength !== undefined) schema.maxLength = param.maxLength;
+      if (param.pattern) schema.pattern = param.pattern;
+      if (param.minItems !== undefined) schema.minItems = param.minItems;
+      if (param.maxItems !== undefined) schema.maxItems = param.maxItems;
+      if (param.uniqueItems !== undefined) schema.uniqueItems = param.uniqueItems;
+      if (param.default !== undefined) schema.default = param.default;
+      if (param.example !== undefined) schema.example = param.example;
+      if (param.description) schema.description = param.description;
+
+      // Handle array items for OpenAPI v2
+      if (param.type === 'array' && param.items) {
+        schema.items = param.items;
+      }
+
+      return schema;
+    }
+
+    // Fallback for parameters without type information
+    return { type: 'string' };
   }
 
   public generateJSDocComment(schema: any, propertyName?: string): string | undefined {

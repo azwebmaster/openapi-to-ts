@@ -407,4 +407,205 @@ describe('OpenAPIGenerator', () => {
       });
     });
   });
+
+  describe('duplicate operationId handling', () => {
+    let generator: OpenAPIGenerator;
+
+    beforeEach(() => {
+      generator = new OpenAPIGenerator(mockOptions);
+    });
+
+    it('should handle duplicate operationIds by appending sequence numbers', () => {
+      // Mock API with duplicate operationIds
+      (generator as any).api = {
+        paths: {
+          '/users': {
+            get: { operationId: 'getUsers' },
+            post: { operationId: 'getUsers' } // Duplicate
+          },
+          '/users/{id}': {
+            get: { operationId: 'getUsers' }, // Another duplicate
+            put: { operationId: 'updateUser' }
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Extract all operationIds from the result
+      const operationIds = Object.values(result)
+        .flat()
+        .map((op: any) => op.operationId);
+
+      // Should have: 'getUsers', 'getUsers2', 'getUsers3', 'updateUser'
+      expect(operationIds).toContain('getUsers');
+      expect(operationIds).toContain('getUsers2');
+      expect(operationIds).toContain('getUsers3');
+      expect(operationIds).toContain('updateUser');
+      expect(operationIds).toHaveLength(4);
+    });
+
+    it('should handle duplicates in namespaced operationIds', () => {
+      // Mock API with duplicate namespaced operationIds
+      (generator as any).api = {
+        paths: {
+          '/admin/users': {
+            get: { operationId: 'admin/getUsers' },
+            post: { operationId: 'admin/getUsers' } // Duplicate
+          },
+          '/admin/roles': {
+            get: { operationId: 'admin/getUsers' } // Another duplicate
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should all be in the 'admin' namespace
+      expect(result).toHaveProperty('admin');
+      expect(result.admin).toHaveLength(3);
+
+      const operationIds = result.admin.map((op: any) => op.operationId);
+      expect(operationIds).toContain('admin/getUsers');
+      expect(operationIds).toContain('admin/getUsers2');
+      expect(operationIds).toContain('admin/getUsers3');
+    });
+
+    it('should not affect unique operationIds', () => {
+      // Mock API with unique operationIds
+      (generator as any).api = {
+        paths: {
+          '/users': {
+            get: { operationId: 'getUsers' },
+            post: { operationId: 'createUser' }
+          },
+          '/users/{id}': {
+            get: { operationId: 'getUserById' },
+            put: { operationId: 'updateUser' }
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      const operationIds = Object.values(result)
+        .flat()
+        .map((op: any) => op.operationId);
+
+      // All should remain unchanged
+      expect(operationIds).toContain('getUsers');
+      expect(operationIds).toContain('createUser');
+      expect(operationIds).toContain('getUserById');
+      expect(operationIds).toContain('updateUser');
+      expect(operationIds).toHaveLength(4);
+    });
+  });
+
+  describe('OpenAPI v2 parameter handling', () => {
+    let generator: OpenAPIGenerator;
+
+    beforeEach(() => {
+      generator = new OpenAPIGenerator(mockOptions);
+    });
+
+    it('should handle OpenAPI v2 parameter with type directly on parameter', () => {
+      const param = {
+        name: 'namespace',
+        in: 'path',
+        required: true,
+        type: 'string',
+        format: 'domain',
+        description: 'Namespace to retrieve the records for.'
+      };
+
+      const schema = (generator as any).getParameterSchema(param);
+
+      expect(schema.type).toBe('string');
+      expect(schema.format).toBe('domain');
+      expect(schema.description).toBe('Namespace to retrieve the records for.');
+    });
+
+    it('should handle OpenAPI v3 parameter with schema property', () => {
+      const param = {
+        name: 'id',
+        in: 'path',
+        required: true,
+        schema: {
+          type: 'integer',
+          format: 'int64'
+        }
+      };
+
+      const schema = (generator as any).getParameterSchema(param);
+
+      expect(schema.type).toBe('integer');
+      expect(schema.format).toBe('int64');
+    });
+
+    it('should handle OpenAPI v2 array parameter', () => {
+      const param = {
+        name: 'tags',
+        in: 'query',
+        required: false,
+        type: 'array',
+        items: {
+          type: 'string'
+        }
+      };
+
+      const schema = (generator as any).getParameterSchema(param);
+
+      expect(schema.type).toBe('array');
+      expect(schema.items).toEqual({ type: 'string' });
+    });
+
+    it('should handle OpenAPI v2 parameter with enum', () => {
+      const param = {
+        name: 'status',
+        in: 'query',
+        required: false,
+        type: 'string',
+        enum: ['active', 'inactive', 'pending']
+      };
+
+      const schema = (generator as any).getParameterSchema(param);
+
+      expect(schema.type).toBe('string');
+      expect(schema.enum).toEqual(['active', 'inactive', 'pending']);
+    });
+
+    it('should fallback to string for parameter without type', () => {
+      const param = {
+        name: 'unknown',
+        in: 'query',
+        required: false
+      };
+
+      const schema = (generator as any).getParameterSchema(param);
+
+      expect(schema.type).toBe('string');
+    });
+
+    it('should copy all relevant OpenAPI v2 constraints to schema', () => {
+      const param = {
+        name: 'count',
+        in: 'query',
+        type: 'integer',
+        minimum: 1,
+        maximum: 100,
+        default: 10,
+        example: 25,
+        description: 'Number of items to return'
+      };
+
+      const schema = (generator as any).getParameterSchema(param);
+
+      expect(schema.type).toBe('integer');
+      expect(schema.minimum).toBe(1);
+      expect(schema.maximum).toBe(100);
+      expect(schema.default).toBe(10);
+      expect(schema.example).toBe(25);
+      expect(schema.description).toBe('Number of items to return');
+    });
+  });
 });
