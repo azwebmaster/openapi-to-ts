@@ -126,7 +126,8 @@ export class OpenAPIGenerator {
   private async generateTypes(): Promise<void> {
     if (!this.api) return;
 
-    const schemas = (this.api.components as any)?.schemas || {};
+    // Support both OpenAPI 3.x (components.schemas) and OpenAPI 2.0 (definitions)
+    const schemas = (this.api.components as any)?.schemas || (this.api as any)?.definitions || {};
 
     switch (this.typeOutputMode) {
       case TypeOutputMode.FilePerType:
