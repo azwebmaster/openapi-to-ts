@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.6
+
+### Patch Changes
+
+- 7b5354b: support OpenAPI v2 definitions
+
 ## 0.0.5
 
 ### Patch Changes
