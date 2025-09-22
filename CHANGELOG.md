@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.8
+
+### Patch Changes
+
+- 308eac6: fix openapi v2 return types
+
 ## 0.0.7
 
 ### Patch Changes
