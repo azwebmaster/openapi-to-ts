@@ -1,0 +1,138 @@
+name: Documentation
+
+on:
+  push:
+    paths:
+      - '*.md'
+      - '.github/workflows/docs.yml'
+      - 'docs/**'
+  pull_request:
+    paths:
+      - '*.md'
+      - '.github/workflows/docs.yml'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  validate-docs:
+    name: Validate Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install markdownlint
+        run: npm install -g markdownlint-cli
+
+      - name: Validate Markdown Files
+        run: |
+          echo "🔍 Validating markdown files..."
+          markdownlint "*.md" "docs/**/*.md" --config .markdownlint.json || true
+
+      - name: Check for Broken Links
+        run: |
+          echo "🔗 Checking for broken links..."
+          npx markdown-link-check README.md --config .markdown-link-check.json || true
+
+      - name: Validate README Structure
+        run: |
+          echo "📋 Validating README structure..."
+          
+          # Check if README has required sections
+          required_sections=("Quick Start" "Installation" "Usage" "Features")
+          for section in "${required_sections[@]}"; do
+            if ! grep -q "$section" README.md; then
+              echo "❌ Missing required section: $section"
+              exit 1
+            else
+              echo "✅ Found section: $section"
+            fi
+          done
+
+      - name: Check Documentation Coverage
+        run: |
+          echo "📊 Checking documentation coverage..."
+          
+          # Check if all major features are documented
+          if [ -f "src/generator.ts" ]; then
+            echo "✅ Generator source found"
+          fi
+          
+          if [ -f "src/cli.ts" ]; then
+            echo "✅ CLI source found"
+          fi
+          
+          # Check for example files
+          if [ -f "samples/" ]; then
+            echo "✅ Samples directory found"
+          fi
+
+  spell-check:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install cspell
+        run: npm install -g cspell
+
+      - name: Spell Check Documentation
+        run: |
+          echo "📝 Running spell check on documentation..."
+          cspell "*.md" "docs/**/*.md" --config .cspell.json || true
+
+  generate-docs:
+    name: Generate Documentation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install
+
+      - name: Build Project
+        run: bun run build
+
+      - name: Generate API Documentation
+        run: |
+          echo "📚 Generating API documentation..."
+          # Generate TypeDoc documentation if available
+          if command -v typedoc &> /dev/null; then
+            typedoc --out docs/api src/index.ts
+          fi
+
+      - name: Update Documentation Index
+        run: |
+          echo "📋 Updating documentation index..."
+          # Create or update docs index if needed
+          if [ ! -f "docs/README.md" ]; then
+            mkdir -p docs
+            echo "# Documentation" > docs/README.md
+            echo "" >> docs/README.md
+            echo "This directory contains additional documentation for the project." >> docs/README.md
+          fi

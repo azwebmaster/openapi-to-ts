@@ -276,6 +276,43 @@ describe('OpenAPIGenerator', () => {
         const result = generator.getResponseType(responses);
         expect(result).toBe('void');
       });
+
+      it('should handle OpenAPI v2 (Swagger 2.0) response format', () => {
+        const responses = {
+          '200': {
+            description: 'Successful response',
+            schema: {
+              type: 'array',
+              items: {
+                $ref: '#/definitions/User'
+              }
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('Array<User>');
+      });
+
+      it('should handle OpenAPI v2 response with direct schema reference', () => {
+        const responses = {
+          '201': {
+            description: 'User created',
+            schema: {
+              $ref: '#/definitions/User'
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('User');
+      });
+
+      it('should handle OpenAPI v2 response without schema', () => {
+        const responses = {
+          '204': { description: 'No content' }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('void');
+      });
     });
   });
 

@@ -1498,13 +1498,21 @@ ${operations.map(({ operationId }) => {
     const successResponse = responses['200'] || responses['201'] || responses['204'];
     if (!successResponse) return 'unknown';
 
-    const content = successResponse.content;
-    if (!content) return 'void';
+    // OpenAPI v3 format: responses have content property
+    if (successResponse.content) {
+      const content = successResponse.content;
+      const contentType = Object.keys(content)[0];
+      const schema = content[contentType]?.schema;
+      return this.getTypeString(schema);
+    }
 
-    const contentType = Object.keys(content)[0];
-    const schema = content[contentType]?.schema;
+    // OpenAPI v2 (Swagger 2.0) format: responses have schema property directly
+    if (successResponse.schema) {
+      return this.getTypeString(successResponse.schema);
+    }
 
-    return this.getTypeString(schema);
+    // No schema/content found
+    return 'void';
   }
 
   private async generateIndex(): Promise<void> {
