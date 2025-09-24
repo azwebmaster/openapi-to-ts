@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.9
+
+### Patch Changes
+
+- b899d29: fix openapi v2 body
+
 ## 0.0.8
 
 ### Patch Changes
