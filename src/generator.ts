@@ -1384,17 +1384,22 @@ ${operations.map(({ operationId }) => {
     const hasRequestBody = requestBody || bodyParams.length > 0;
     const bodyRequired = requestBody ? requestBody.required : (bodyParams.length > 0 ? bodyParams[0].required : false);
 
+    // Determine if data will be required
+    const dataRequired = (requestBody && requestBody.required) || (bodyParams.length > 0 && bodyParams[0].required);
+
     if (hasParams) {
       paramsTypeName = `${this.toTypeName(baseMethodName)}Params`;
       this.generateParameterInterface(classDeclaration.getSourceFile(), paramsTypeName, allParams);
 
-      // The params parameter should be required if ANY parameter is required
+      // The params parameter should be required if ANY parameter is required OR if data is required
+      // (to maintain valid TypeScript parameter ordering)
       const hasRequiredParams = allParams.some(p => p.required);
+      const paramsRequired = hasRequiredParams || dataRequired;
       
       methodParams.push({
         name: 'params',
         type: paramsTypeName,
-        hasQuestionToken: !hasRequiredParams,
+        hasQuestionToken: !paramsRequired,
       });
     }
 

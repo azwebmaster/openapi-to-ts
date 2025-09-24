@@ -1,0 +1,30 @@
+{
+    "apis": [
+        {
+            "name": "swagger-v2-simple",
+            "spec": "swagger-v2-simple/swagger-v2-simple.json",
+            "output": "swagger-v2-simple/generated",
+            "operationIds": ["getUsers"]
+        },
+        {
+            "name": "swagger-v2-medium",
+            "spec": "swagger-v2-medium/swagger-v2-medium.json",
+            "output": "swagger-v2-medium/generated"
+        },
+        {
+            "name": "openapi-v3-simple",
+            "spec": "openapi-v3-simple/openapi-v3-simple.yaml",
+            "output": "openapi-v3-simple/generated"
+        },
+        {
+            "name": "openapi-v3-medium",
+            "spec": "openapi-v3-medium/openapi-v3-medium.yaml",
+            "output": "openapi-v3-medium/generated"
+        },
+        {
+            "name": "openapi-v3-comprehensive",
+            "spec": "openapi-v3-comprehensive/comprehensive-test-spec.yaml",
+            "output": "openapi-v3-comprehensive/generated"
+        }
+    ]
+}
