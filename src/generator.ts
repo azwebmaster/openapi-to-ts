@@ -1371,15 +1371,23 @@ ${operations.map(({ operationId }) => {
     const hasParams = allParams.length > 0;
     let paramsTypeName = '';
 
+    // Check if we have body parameters (OpenAPI v2 or v3)
+    const bodyParams = parameters.filter((param: any) => param.in === 'body');
+    const hasRequestBody = requestBody || bodyParams.length > 0;
+    const bodyRequired = requestBody ? requestBody.required : (bodyParams.length > 0 ? bodyParams[0].required : false);
+
     if (hasParams) {
       paramsTypeName = `${this.toTypeName(baseMethodName)}Params`;
       this.generateParameterInterface(classDeclaration.getSourceFile(), paramsTypeName, allParams);
 
+      // If we have body parameters, we need to make params optional to avoid "required parameter cannot follow optional parameter"
       const allRequired = allParams.filter(p => p.required).length > 0;
+      const shouldMakeParamsOptional = hasRequestBody || !allRequired;
+      
       methodParams.push({
         name: 'params',
         type: paramsTypeName,
-        hasQuestionToken: !allRequired,
+        hasQuestionToken: shouldMakeParamsOptional,
       });
     }
 
@@ -1395,7 +1403,6 @@ ${operations.map(({ operationId }) => {
     }
 
     // Add OpenAPI v2 body parameters as separate parameter
-    const bodyParams = parameters.filter((param: any) => param.in === 'body');
     if (bodyParams.length > 0) {
       // For OpenAPI v2, we expect only one body parameter
       const bodyParam = bodyParams[0];

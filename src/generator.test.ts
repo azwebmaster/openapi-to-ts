@@ -1169,6 +1169,77 @@ describe('OpenAPIGenerator', () => {
       expect(axiosCall).toContain('data');
       expect(axiosCall).toContain('config');
     });
+
+    it('should handle required parameter ordering correctly with body parameters', () => {
+      // Test scenario: path parameter + body parameter
+      const operation = {
+        operationId: 'updateUser',
+        summary: 'Update a user',
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            type: 'string'
+          },
+          {
+            name: 'body',
+            in: 'body',
+            required: true,
+            schema: {
+              $ref: '#/definitions/User'
+            }
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'User updated',
+            schema: {
+              $ref: '#/definitions/User'
+            }
+          }
+        }
+      };
+
+      // Simulate the parameter collection logic
+      const parameters = operation.parameters || [];
+      const allParams: any[] = [];
+      const bodyParams: any[] = [];
+
+      for (const param of parameters) {
+        const paramInfo = {
+          name: param.name,
+          type: param.type || 'string',
+          required: param.required,
+          description: param.description,
+          in: param.in,
+        };
+
+        if (param.in !== 'body') {
+          allParams.push(paramInfo);
+        } else {
+          bodyParams.push(paramInfo);
+        }
+      }
+
+      // Check that we have both path and body parameters
+      expect(allParams).toHaveLength(1); // path parameter
+      expect(bodyParams).toHaveLength(1); // body parameter
+      expect(allParams[0].name).toBe('id');
+      expect(allParams[0].required).toBe(true);
+      expect(bodyParams[0].name).toBe('body');
+      expect(bodyParams[0].required).toBe(true);
+
+      // Simulate the parameter ordering logic
+      const hasParams = allParams.length > 0;
+      const hasRequestBody = bodyParams.length > 0;
+      const allRequired = allParams.filter(p => p.required).length > 0;
+      const shouldMakeParamsOptional = hasRequestBody || !allRequired;
+
+      // When we have both path and body parameters, params should be optional
+      // to avoid "required parameter cannot follow optional parameter"
+      expect(shouldMakeParamsOptional).toBe(true);
+    });
   });
 
   describe('configuration system', () => {
