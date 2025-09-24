@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.12
+
+### Patch Changes
+
+- 8273402: fix client methods
+
 ## 0.0.11
 
 ### Patch Changes
