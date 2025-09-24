@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.13
+
+### Patch Changes
+
+- 11c2df8: fix operation arguments
+
 ## 0.0.12
 
 ### Patch Changes
