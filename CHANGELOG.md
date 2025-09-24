@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.11
+
+### Patch Changes
+
+- 44b81f8: improve info and add operationId to JSDocs
+
 ## 0.0.10
 
 ### Patch Changes
