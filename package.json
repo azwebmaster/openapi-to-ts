@@ -1,6 +1,6 @@
 {
   "name": "@azwebmaster/openapi-to-ts",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "publishConfig": {
     "registry": "https://registry.npmjs.org"
   },
