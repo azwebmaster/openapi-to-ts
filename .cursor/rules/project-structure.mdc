@@ -1,0 +1,57 @@
+---
+alwaysApply: true
+---
+
+# OpenAPI to TypeScript Generator - Project Structure
+
+This is an OpenAPI 3.0+ to TypeScript client generator built with TypeScript, ts-morph, and Axios.
+
+## Core Architecture
+
+- **Main Entry Point**: [src/index.ts](mdc:src/index.ts) - Exports the main `generateFromSpec` function and types
+- **Generator Engine**: [src/generator.ts](mdc:src/generator.ts) - Core `OpenAPIGenerator` class with TypeScript generation logic
+- **CLI Interface**: [src/cli.ts](mdc:src/cli.ts) - Commander.js-based CLI with multiple commands
+- **Build Output**: [dist/](mdc:dist/) - Compiled JavaScript and TypeScript declarations
+
+## Key Dependencies
+
+- **ts-morph**: TypeScript AST manipulation for code generation
+- **@apidevtools/swagger-parser**: OpenAPI spec parsing and validation
+- **axios**: HTTP client for generated clients
+- **commander**: CLI argument parsing
+- **vitest**: Testing framework
+
+## Project Structure
+
+```
+src/
+├── index.ts          # Main exports and generateFromSpec function
+├── generator.ts      # OpenAPIGenerator class - core generation logic
+├── cli.ts           # CLI commands and argument parsing
+└── *.test.ts        # Test files for each module
+
+samples/
+├── comprehensive-test-spec.yaml  # Test OpenAPI spec
+├── swagger-2.0-test.json        # Swagger 2.0 test spec
+└── generated/                   # Sample generated output
+```
+
+## Generated Output Structure
+
+The generator creates three main files:
+- `types.ts` - TypeScript interfaces and types
+- `client.ts` - Axios-based API client class
+- `index.ts` - Exports and factory function
+
+## Configuration
+
+- **TypeScript Config**: [tsconfig.json](mdc:tsconfig.json) - ES2022, NodeNext modules, strict mode
+- **Test Config**: [vitest.config.ts](mdc:vitest.config.ts) - Node environment, coverage thresholds
+- **Package Manager**: Uses Bun (see [package.json](mdc:package.json) packageManager field)
+
+## Development Workflow
+
+1. Source code in `src/` directory
+2. Run `bun run build` to compile to `dist/`
+3. Run `bun test` for testing
+4. CLI available as `openapi-to-ts` or `ott` commands

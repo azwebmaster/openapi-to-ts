@@ -140,6 +140,27 @@ export class MyAPIClient {
 
 ## 🎯 Advanced Features
 
+### Configuration File System
+
+For complex projects, use `.ott.json` configuration files to manage multiple APIs and operation filtering:
+
+```bash
+# Initialize configuration from OpenAPI spec
+openapi-to-ts init ./api.yaml
+
+# List available operations
+openapi-to-ts list
+
+# Generate only selected operations
+openapi-to-ts generate --config --operation-ids "getUsers,createUser"
+```
+
+Configuration files support:
+- **Multiple APIs**: Generate clients for different OpenAPI specs
+- **Operation Filtering**: Select only the operations you need
+- **Persistent Settings**: Save generation options for team collaboration
+- **CI/CD Integration**: Use config files in automated builds
+
 ### Schema Composition Support
 
 ```yaml
@@ -206,6 +227,74 @@ await api.users.updateSettings(data);
 await api.admin.getSystemStats();
 ```
 
+## ⚙️ Configuration File System
+
+For complex projects or when you need to generate multiple API clients, use the configuration file system with `.ott.json`:
+
+### Initialize Configuration
+
+```bash
+# Create configuration from OpenAPI spec
+openapi-to-ts init ./api.yaml
+
+# With custom output directory
+openapi-to-ts init ./api.yaml -o ./src/api
+
+# From remote URL
+openapi-to-ts init https://api.example.com/openapi.json
+```
+
+### Configuration File Format
+
+The generated `.ott.json` file contains:
+
+```json
+{
+  "apis": [
+    {
+      "name": "My API",
+      "spec": "./api.yaml",
+      "output": "./generated",
+      "namespace": "MyAPI",
+      "axiosInstance": "apiClient",
+      "typeOutput": "single-file",
+      "headers": {
+        "Authorization": "Bearer your-token"
+      },
+      "operationIds": [
+        "getUsers",
+        "createUser",
+        "updateUser"
+      ]
+    }
+  ]
+}
+```
+
+### Configuration Commands
+
+```bash
+# List available operations from config
+openapi-to-ts list
+
+# List operations for specific API (if multiple APIs)
+openapi-to-ts list --api "My API"
+
+# Generate using configuration file
+openapi-to-ts generate --config
+
+# Generate specific operations from CLI
+openapi-to-ts generate --config --operation-ids "getUsers,createUser"
+```
+
+### Benefits of Configuration Files
+
+- **Operation Filtering**: Generate only the operations you need
+- **Multiple APIs**: Manage multiple OpenAPI specs in one project
+- **Persistent Settings**: Save generation options for repeated use
+- **Team Collaboration**: Share configuration with your team
+- **CI/CD Integration**: Use config files in automated builds
+
 ## 🛠️ CLI Reference
 
 ### Commands
@@ -213,6 +302,12 @@ await api.admin.getSystemStats();
 ```bash
 # Generate TypeScript client
 openapi-to-ts generate <spec> [options]
+
+# Initialize configuration file
+openapi-to-ts init <spec> [options]
+
+# List operations from config
+openapi-to-ts list [options]
 
 # Show API specification info
 openapi-to-ts info <spec>
@@ -256,6 +351,12 @@ openapi-to-ts generate api.yaml -t group-by-tag     # Group by OpenAPI tags
 # Preview what will be generated
 openapi-to-ts generate api.yaml --dry-run
 
+# Configuration file workflow
+openapi-to-ts init api.yaml                         # Create .ott.json config
+openapi-to-ts list                                  # List available operations
+openapi-to-ts generate --config                     # Generate using config
+openapi-to-ts generate --config --operation-ids "getUsers,createUser"  # Generate specific operations
+
 # Show API specification information
 openapi-to-ts info api.yaml
 openapi-to-ts info https://api.example.com/openapi.json
@@ -280,21 +381,23 @@ import { generateFromSpec, TypeOutputMode } from '@azwebmaster/openapi-to-ts';
 
 // Basic usage
 await generateFromSpec({
-  inputSpec: './api.yaml',
+  spec: './api.yaml',
   outputDir: './generated/api',
   namespace: 'MyAPI'
 });
 
 // Advanced usage with all options
 await generateFromSpec({
-  inputSpec: 'https://api.example.com/openapi.json',
+  spec: 'https://api.example.com/openapi.json',
   outputDir: './src/generated',
   namespace: 'GitHubAPI',
+  axiosInstanceName: 'githubClient',
   typeOutputMode: TypeOutputMode.FilePerType,
   headers: {
     'Authorization': 'Bearer your-token',
     'X-API-Key': 'your-api-key'
-  }
+  },
+  operationIds: ['getUsers', 'createUser', 'updateUser']
 });
 ```
 
@@ -302,11 +405,13 @@ await generateFromSpec({
 
 ```typescript
 interface GeneratorOptions {
-  inputSpec: string;                    // Path to OpenAPI spec file or URL
+  spec: string;                         // Path to OpenAPI spec file or URL
   outputDir: string;                    // Output directory for generated files
   namespace?: string;                   // Client namespace (default: 'API')
+  axiosInstanceName?: string;           // Name for Axios instance (default: 'apiClient')
   headers?: Record<string, string>;     // HTTP headers for remote specs
   typeOutputMode?: TypeOutputMode;      // How to organize generated types
+  operationIds?: string[];              // Filter specific operations to generate
 }
 
 enum TypeOutputMode {
@@ -320,15 +425,16 @@ enum TypeOutputMode {
 
 ```typescript
 // scripts/generate-api.ts
-import { generateFromSpec } from '@azwebmaster/openapi-to-ts';
+import { generateFromSpec, TypeOutputMode } from '@azwebmaster/openapi-to-ts';
 
 async function generateAPI() {
   try {
     await generateFromSpec({
-      inputSpec: './api/openapi.yaml',
+      spec: './api/openapi.yaml',
       outputDir: './src/api/generated',
       namespace: 'MyAPI',
-      typeOutputMode: 'single-file'
+      typeOutputMode: TypeOutputMode.SingleFile,
+      operationIds: ['getUsers', 'createUser', 'updateUser'] // Only generate specific operations
     });
     console.log('✅ API client generated successfully');
   } catch (error) {

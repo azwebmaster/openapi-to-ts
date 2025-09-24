@@ -1,0 +1,87 @@
+---
+description: OpenAPI generation patterns and best practices
+---
+
+# OpenAPI Generation Patterns
+
+## Core Generation Logic
+
+The [OpenAPIGenerator](mdc:src/generator.ts) class handles all code generation:
+
+### Type Generation
+- **Schema Processing**: Converts OpenAPI schemas to TypeScript interfaces
+- **Composition Support**: Handles `anyOf`, `oneOf`, `allOf` with proper TypeScript unions
+- **Discriminated Unions**: Supports OpenAPI discriminators for type narrowing
+- **Nullable Types**: Handles both OpenAPI 3.0 `nullable` and 3.1 `type` arrays
+
+### Client Generation
+- **Method Generation**: Creates typed methods for each OpenAPI operation
+- **Parameter Handling**: Supports path, query, header, and body parameters
+- **Namespace Organization**: Groups operations by `operationId` patterns
+- **Axios Integration**: Uses Axios for HTTP requests with full typing
+
+## Type Output Modes
+
+### Single File Mode (Default)
+- All types in one `types.ts` file
+- Simple imports and exports
+- Best for smaller APIs
+
+### File Per Type Mode
+- Each type in separate file under `types/` directory
+- Better for large APIs with many types
+- Automatic dependency resolution
+
+### Group By Tag Mode
+- Types grouped by OpenAPI tags or inferred categories
+- Logical organization by domain
+- Reduces file size while maintaining organization
+
+## Schema Processing Patterns
+
+### Type Name Conversion
+```typescript
+// OpenAPI schema name -> TypeScript type name
+"user-profile" -> "UserProfile"
+"APIResponse" -> "APIResponse"
+```
+
+### Property Name Handling
+```typescript
+// Valid identifiers: use as-is
+"userId" -> "userId"
+
+// Invalid identifiers: quote them
+"user-id" -> "'user-id'"
+```
+
+### Method Name Generation
+```typescript
+// From operationId
+"users/getProfile" -> "getProfile"
+"admin/users/create" -> "create" (in admin.users namespace)
+```
+
+## Error Handling in Generation
+
+- **Schema Validation**: Use SwaggerParser for spec validation
+- **Type Resolution**: Handle missing or circular references gracefully
+- **File System**: Create directories and handle write permissions
+- **Network Requests**: Timeout and retry logic for remote specs
+
+## Configuration File Support
+
+The generator supports `.ott.json` configuration files for:
+- **Operation Filtering**: Select specific operations to generate
+- **Multiple APIs**: Generate clients for multiple OpenAPI specs
+- **Custom Settings**: Override default generation options
+- **Persistent Configuration**: Save settings for repeated generation
+
+## Testing Generation
+
+Use the [comprehensive test spec](mdc:samples/comprehensive-test-spec.yaml) to verify:
+- Complex schema compositions
+- Discriminated unions
+- Nullable types
+- Namespace organization
+- Parameter handling

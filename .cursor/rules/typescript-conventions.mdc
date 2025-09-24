@@ -1,0 +1,87 @@
+---
+globs: *.ts,*.tsx
+---
+
+# TypeScript Coding Conventions
+
+## Code Style
+
+- **Semicolons**: Always use semicolons
+- **Quotes**: Use single quotes for strings, double quotes for JSON
+- **Indentation**: 2 spaces (no tabs)
+- **Line Length**: Prefer lines under 120 characters
+- **Trailing Commas**: Use trailing commas in objects and arrays
+
+## TypeScript Configuration
+
+This project uses strict TypeScript settings from [tsconfig.json](mdc:tsconfig.json):
+- `strict: true` - Enable all strict type checking
+- `noImplicitAny: true` - Require explicit types
+- `strictNullChecks: true` - Strict null checking
+- `forceConsistentCasingInFileNames: true`
+
+## Naming Conventions
+
+- **Classes**: PascalCase (e.g., `OpenAPIGenerator`)
+- **Interfaces**: PascalCase (e.g., `GeneratorOptions`)
+- **Types**: PascalCase (e.g., `TypeOutputMode`)
+- **Functions**: camelCase (e.g., `generateFromSpec`)
+- **Variables**: camelCase (e.g., `outputDir`)
+- **Constants**: UPPER_SNAKE_CASE (e.g., `DEFAULT_OUTPUT_DIR`)
+- **Private methods**: camelCase with underscore prefix (e.g., `_generateTypes`)
+
+## Import/Export Patterns
+
+- Use ES modules (`import`/`export`)
+- Prefer named exports over default exports
+- Group imports: external packages first, then internal modules
+- Use `import type` for type-only imports
+
+```typescript
+// Good
+import { Project, SourceFile } from 'ts-morph';
+import type { GeneratorOptions } from './generator.js';
+import { generateFromSpec } from './index.js';
+
+// Avoid
+import * as fs from 'fs';
+```
+
+## Error Handling
+
+- Use `Error` class for custom errors
+- Include meaningful error messages
+- Use `try/catch` blocks appropriately
+- Log errors with context
+
+```typescript
+// Good
+throw new Error(`Failed to parse OpenAPI spec from ${url}: ${error.message}`);
+
+// Avoid
+throw 'Something went wrong';
+```
+
+## Async/Await
+
+- Prefer `async/await` over Promises
+- Use `Promise<void>` for functions that don't return values
+- Handle errors in async functions properly
+
+## Type Definitions
+
+- Define interfaces for complex objects
+- Use union types for limited sets of values
+- Prefer `interface` over `type` for object shapes
+- Use generic types when appropriate
+
+```typescript
+// Good
+interface GeneratorOptions {
+  spec: string;
+  outputDir: string;
+  namespace?: string;
+}
+
+type TypeOutputMode = 'single-file' | 'file-per-type' | 'group-by-tag';
+```

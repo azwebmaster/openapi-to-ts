@@ -12,13 +12,29 @@ export enum TypeOutputMode {
   GroupByTag = 'group-by-tag'
 }
 
+export interface APIConfig {
+  name: string;
+  spec: string;
+  output?: string;  // matches --output
+  namespace?: string;  // matches --namespace
+  axiosInstance?: string;  // matches --axios-instance
+  typeOutput?: string;  // matches --type-output
+  headers?: Record<string, string>;  // matches --header
+  operationIds?: string[];
+}
+
+export interface OTTConfig {
+  apis: APIConfig[];
+}
+
 export interface GeneratorOptions {
-  inputSpec: string;
+  spec: string;
   outputDir: string;
   axiosInstanceName?: string;
   namespace?: string;
   headers?: Record<string, string>;
   typeOutputMode?: TypeOutputMode;
+  operationIds?: string[];
 }
 
 type OpenAPIDocument = OpenAPIV3.Document | OpenAPIV3_1.Document;
@@ -28,6 +44,7 @@ export class OpenAPIGenerator {
   private api: OpenAPIDocument | null = null;
   private namespace: string;
   private typeOutputMode: TypeOutputMode;
+  private operationIds: string[] | undefined;
 
   constructor(private options: GeneratorOptions) {
     this.project = new Project({
@@ -46,17 +63,21 @@ export class OpenAPIGenerator {
     });
     this.namespace = options.namespace || 'API';
     this.typeOutputMode = options.typeOutputMode || TypeOutputMode.SingleFile;
+    this.operationIds = options.operationIds;
   }
 
   async generate(): Promise<void> {
-    let specInput: string | object = this.options.inputSpec;
+    let specInput: string | object = this.options.spec;
 
-    // If inputSpec is a URL, fetch it
-    if (this.options.inputSpec.startsWith('http://') || this.options.inputSpec.startsWith('https://')) {
-      specInput = await this.fetchFromUrl(this.options.inputSpec, this.options.headers);
+    // If spec is a URL, fetch it
+    if (this.options.spec.startsWith('http://') || this.options.spec.startsWith('https://')) {
+      specInput = await this.fetchFromUrl(this.options.spec, this.options.headers);
     }
 
     this.api = await SwaggerParser.parse(specInput as any) as OpenAPIDocument;
+
+    // Filter operations based on configuration
+    this.filterOperationsByConfig();
 
     await fs.mkdir(this.options.outputDir, { recursive: true });
 
@@ -127,18 +148,35 @@ export class OpenAPIGenerator {
     if (!this.api) return;
 
     // Support both OpenAPI 3.x (components.schemas) and OpenAPI 2.0 (definitions)
-    const schemas = (this.api.components as any)?.schemas || (this.api as any)?.definitions || {};
+    const allSchemas = (this.api.components as any)?.schemas || (this.api as any)?.definitions || {};
+
+    // Filter schemas to only include those used by the specified operations
+    const usedTypeNames = this.collectUsedTypes();
+    const filteredSchemas: Record<string, any> = {};
+
+    // If no operationIds are specified, generate all types
+    if (!this.operationIds || this.operationIds.length === 0) {
+      Object.assign(filteredSchemas, allSchemas);
+    } else {
+      // Only include schemas that are referenced by the specified operations
+      for (const [schemaName, schema] of Object.entries(allSchemas)) {
+        const typeName = this.toTypeName(schemaName);
+        if (usedTypeNames.includes(typeName)) {
+          filteredSchemas[schemaName] = schema;
+        }
+      }
+    }
 
     switch (this.typeOutputMode) {
       case TypeOutputMode.FilePerType:
-        await this.generateTypesInSeparateFiles(schemas);
+        await this.generateTypesInSeparateFiles(filteredSchemas);
         break;
       case TypeOutputMode.GroupByTag:
-        await this.generateTypesGroupedByTag(schemas);
+        await this.generateTypesGroupedByTag(filteredSchemas);
         break;
       case TypeOutputMode.SingleFile:
       default:
-        await this.generateTypesInSingleFile(schemas);
+        await this.generateTypesInSingleFile(filteredSchemas);
         break;
     }
   }
@@ -718,6 +756,9 @@ export class OpenAPIGenerator {
 
     if (!this.api || !this.api.paths) return [];
 
+    // Get all available schemas for reference resolution
+    const allSchemas = (this.api.components as any)?.schemas || (this.api as any)?.definitions || {};
+
     // Collect types from all operations
     for (const [, pathItem] of Object.entries(this.api.paths)) {
       const item = pathItem as any;
@@ -729,14 +770,14 @@ export class OpenAPIGenerator {
           const parameters = operation.parameters || [];
           for (const param of parameters) {
             const paramSchema = this.getParameterSchema(param);
-            this.collectTypesFromSchema(paramSchema, usedTypes);
+            this.collectTypesFromSchema(paramSchema, usedTypes, allSchemas);
           }
 
           // Collect types from request body
           if (operation.requestBody?.content) {
             for (const content of Object.values(operation.requestBody.content) as any[]) {
               if (content.schema) {
-                this.collectTypesFromSchema(content.schema, usedTypes);
+                this.collectTypesFromSchema(content.schema, usedTypes, allSchemas);
               }
             }
           }
@@ -744,12 +785,17 @@ export class OpenAPIGenerator {
           // Collect types from responses
           if (operation.responses) {
             for (const response of Object.values(operation.responses) as any[]) {
+              // OpenAPI v3 format: responses have content property
               if (response.content) {
                 for (const content of Object.values(response.content) as any[]) {
                   if (content.schema) {
-                    this.collectTypesFromSchema(content.schema, usedTypes);
+                    this.collectTypesFromSchema(content.schema, usedTypes, allSchemas);
                   }
                 }
+              }
+              // OpenAPI v2 (Swagger 2.0) format: responses have schema property directly
+              else if (response.schema) {
+                this.collectTypesFromSchema(response.schema, usedTypes, allSchemas);
               }
             }
           }
@@ -760,14 +806,21 @@ export class OpenAPIGenerator {
     return Array.from(usedTypes).sort();
   }
 
-  private collectTypesFromSchema(schema: any, usedTypes: Set<string>): void {
+  private collectTypesFromSchema(schema: any, usedTypes: Set<string>, allSchemas: Record<string, any> = {}): void {
     if (!schema) return;
 
     // Handle $ref
     if (schema.$ref) {
       const refName = schema.$ref.split('/').pop();
       if (refName) {
-        usedTypes.add(this.toTypeName(refName));
+        const typeName = this.toTypeName(refName);
+        usedTypes.add(typeName);
+        
+        // Resolve the referenced schema and continue traversal
+        const referencedSchema = this.resolveSchemaReference(schema.$ref, allSchemas);
+        if (referencedSchema) {
+          this.collectTypesFromSchema(referencedSchema, usedTypes, allSchemas);
+        }
       }
       return;
     }
@@ -776,27 +829,47 @@ export class OpenAPIGenerator {
     if (schema.anyOf || schema.oneOf || schema.allOf) {
       const schemas = schema.anyOf || schema.oneOf || schema.allOf;
       for (const subSchema of schemas) {
-        this.collectTypesFromSchema(subSchema, usedTypes);
+        this.collectTypesFromSchema(subSchema, usedTypes, allSchemas);
       }
       return;
     }
 
     // Handle arrays
     if (schema.type === 'array' && schema.items) {
-      this.collectTypesFromSchema(schema.items, usedTypes);
+      this.collectTypesFromSchema(schema.items, usedTypes, allSchemas);
     }
 
     // Handle objects with properties
     if (schema.properties) {
       for (const propSchema of Object.values(schema.properties)) {
-        this.collectTypesFromSchema(propSchema as any, usedTypes);
+        this.collectTypesFromSchema(propSchema as any, usedTypes, allSchemas);
       }
     }
 
     // Handle additional properties
     if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
-      this.collectTypesFromSchema(schema.additionalProperties, usedTypes);
+      this.collectTypesFromSchema(schema.additionalProperties, usedTypes, allSchemas);
     }
+  }
+
+  private resolveSchemaReference(ref: string, allSchemas: Record<string, any>): any {
+    if (!ref || !ref.startsWith('#')) {
+      return null;
+    }
+
+    // Handle OpenAPI 3.x references: #/components/schemas/SchemaName
+    if (ref.startsWith('#/components/schemas/')) {
+      const schemaName = ref.split('/').pop();
+      return schemaName ? allSchemas[schemaName] : null;
+    }
+
+    // Handle OpenAPI 2.0 references: #/definitions/SchemaName
+    if (ref.startsWith('#/definitions/')) {
+      const schemaName = ref.split('/').pop();
+      return schemaName ? allSchemas[schemaName] : null;
+    }
+
+    return null;
   }
 
   private groupPathsByTag(): Record<string, Array<{ path: string; method: string; operation: any }>> {
@@ -1280,7 +1353,10 @@ ${operations.map(({ operationId }) => {
         in: param.in,
       };
 
-      allParams.push(paramInfo);
+      // Only add non-body parameters to allParams
+      if (param.in !== 'body') {
+        allParams.push(paramInfo);
+      }
 
       if (param.in === 'path') {
         pathParams.push(paramName);
@@ -1307,7 +1383,7 @@ ${operations.map(({ operationId }) => {
       });
     }
 
-    // Add request body as separate parameter
+    // Add request body as separate parameter (OpenAPI v3)
     if (requestBody) {
       const contentType = Object.keys(requestBody.content || {})[0];
       const schema = requestBody.content?.[contentType]?.schema;
@@ -1315,6 +1391,19 @@ ${operations.map(({ operationId }) => {
         name: 'data',
         type: this.getTypeString(schema),
         hasQuestionToken: !requestBody.required,
+      });
+    }
+
+    // Add OpenAPI v2 body parameters as separate parameter
+    const bodyParams = parameters.filter((param: any) => param.in === 'body');
+    if (bodyParams.length > 0) {
+      // For OpenAPI v2, we expect only one body parameter
+      const bodyParam = bodyParams[0];
+      const bodySchema = this.getParameterSchema(bodyParam);
+      methodParams.push({
+        name: 'data',
+        type: this.getTypeString(bodySchema),
+        hasQuestionToken: !bodyParam.required,
       });
     }
 
@@ -1438,7 +1527,7 @@ ${operations.map(({ operationId }) => {
         axiosCall += ', config';
       }
     } else {
-      if (requestBody) {
+      if (requestBody || bodyParams.length > 0) {
         axiosCall += ', data';
       } else {
         axiosCall += ', undefined';
@@ -1718,5 +1807,119 @@ ${operations.map(({ operationId }) => {
     }
 
     return undefined;
+  }
+
+  // Configuration file handling methods
+  public static async loadConfig(configPath: string = '.ott.json'): Promise<OTTConfig | null> {
+    try {
+      const configContent = await fs.readFile(configPath, 'utf-8');
+      return JSON.parse(configContent) as OTTConfig;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  public static async saveConfig(config: OTTConfig, configPath: string = '.ott.json'): Promise<void> {
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+  }
+
+  public static async generateConfigFromSpec(
+    spec: string, 
+    outputDir: string = './generated',
+    configPath: string = '.ott.json'
+  ): Promise<OTTConfig> {
+    // Parse the OpenAPI spec to extract operationIds
+    const SwaggerParser = (await import('@apidevtools/swagger-parser')).default;
+    let specInput: string | object = spec;
+
+    // If spec is a URL, fetch it
+    if (spec.startsWith('http://') || spec.startsWith('https://')) {
+      const generator = new OpenAPIGenerator({ spec, outputDir: '' });
+      specInput = await generator.fetchFromUrl(spec);
+    }
+
+    const api = await SwaggerParser.parse(specInput as any) as any;
+    
+    // Extract all operationIds
+    const operationIds: string[] = [];
+    if (api.paths) {
+      for (const [, pathItem] of Object.entries(api.paths)) {
+        const item = pathItem as any;
+        for (const method of ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']) {
+          if (item[method] && item[method].operationId) {
+            operationIds.push(item[method].operationId);
+          }
+        }
+      }
+    }
+
+    // Create default config
+    const config: OTTConfig = {
+      apis: [
+        {
+          name: api.info?.title || 'API',
+          spec,
+          output: outputDir,
+          namespace: api.info?.title || 'API',
+          axiosInstance: 'apiClient',
+          typeOutput: 'single-file',
+          operationIds: operationIds.sort()
+        }
+      ]
+    };
+
+    // Save the config file
+    await this.saveConfig(config, configPath);
+    
+    return config;
+  }
+
+  public static async loadOrGenerateConfig(
+    spec: string,
+    outputDir: string = './generated',
+    configPath: string = '.ott.json'
+  ): Promise<OTTConfig> {
+    // Try to load existing config
+    let config = await this.loadConfig(configPath);
+    
+    if (!config) {
+      // Generate new config if none exists
+      config = await this.generateConfigFromSpec(spec, outputDir, configPath);
+    }
+    
+    return config;
+  }
+
+  // Filter operations based on operationIds in config
+  private filterOperationsByConfig(): void {
+    if (!this.api || !this.api.paths || !this.operationIds || this.operationIds.length === 0) {
+      return;
+    }
+
+    const filteredPaths: any = {};
+    
+    for (const [path, pathItem] of Object.entries(this.api.paths)) {
+      const item = pathItem as any;
+      const filteredItem: any = {};
+      let hasOperations = false;
+
+      for (const method of ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']) {
+        if (item[method]) {
+          const operation = item[method];
+          const operationId = operation.operationId || `${method}_${path}`;
+          
+          if (this.operationIds.includes(operationId)) {
+            filteredItem[method] = operation;
+            hasOperations = true;
+          }
+        }
+      }
+
+      if (hasOperations) {
+        filteredPaths[path] = filteredItem;
+      }
+    }
+
+    this.api.paths = filteredPaths;
   }
 }

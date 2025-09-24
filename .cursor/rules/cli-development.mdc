@@ -1,0 +1,174 @@
+---
+description: CLI development patterns and command structure
+---
+
+# CLI Development Patterns
+
+## CLI Framework
+
+The CLI is built with **Commander.js** in [src/cli.ts](mdc:src/cli.ts):
+- Command-based structure with subcommands
+- Built-in help and version information
+- Argument parsing and validation
+- Error handling with proper exit codes
+
+## Command Structure
+
+### Main Commands
+- `generate` - Generate TypeScript client from OpenAPI spec
+- `init` - Initialize configuration file from spec
+- `list` - List available operations from config
+- `info` - Show OpenAPI specification information
+- `examples` - Display usage examples
+
+### Command Pattern
+```typescript
+program
+  .command('command-name')
+  .description('Command description')
+  .argument('<required>', 'Required argument description')
+  .option('-o, --option <value>', 'Option description', 'default')
+  .action(async (arg, options) => {
+    try {
+      // Command implementation
+    } catch (error) {
+      console.error('Error message');
+      process.exit(1);
+    }
+  });
+```
+
+## Configuration File Integration
+
+### .ott.json Format
+```json
+{
+  "apis": [
+    {
+      "name": "API Name",
+      "spec": "./api.yaml",
+      "output": "./generated",
+      "namespace": "APIName",
+      "axiosInstance": "apiClient",
+      "typeOutput": "single-file",
+      "headers": {
+        "Authorization": "Bearer token"
+      },
+      "operationIds": ["operation1", "operation2"]
+    }
+  ]
+}
+```
+
+### Configuration Commands
+- `init` - Generate config from OpenAPI spec
+- `list` - Show operations from config
+- `generate --config` - Use config file for generation
+
+## Error Handling
+
+### Standard Error Patterns
+```typescript
+try {
+  // Operation
+} catch (error: any) {
+  console.error('\n❌ Operation failed:');
+  console.error(`   ${error.message}\n`);
+  
+  if (error.stack) {
+    console.error('Stack trace:');
+    console.error(error.stack);
+  }
+  
+  process.exit(1);
+}
+```
+
+### Validation Patterns
+```typescript
+// File existence
+if (!fs.existsSync(filePath)) {
+  console.error(`❌ Error: File not found: ${filePath}`);
+  process.exit(1);
+}
+
+// URL validation
+const isUrl = spec.startsWith('http://') || spec.startsWith('https://');
+
+// Option validation
+const validModes = ['single-file', 'file-per-type', 'group-by-tag'];
+if (!validModes.includes(options.typeOutput)) {
+  console.error(`❌ Error: Invalid type output mode "${options.typeOutput}"`);
+  process.exit(1);
+}
+```
+
+## User Experience
+
+### Console Output
+- Use emojis for visual clarity (🚀, ✅, ❌, 📄, etc.)
+- Provide clear progress information
+- Show helpful error messages with suggestions
+- Display usage examples after successful operations
+
+### Help and Documentation
+- Comprehensive help text for each command
+- Usage examples in `examples` command
+- Clear error messages with next steps
+- Auto-detection of configuration files
+
+## Option Handling
+
+### Header Options
+```typescript
+// Parse multiple header options
+const headers: Record<string, string> = {};
+const headerOptions = Array.isArray(options.header) ? options.header : [options.header];
+for (const header of headerOptions) {
+  const colonIndex = header.indexOf(':');
+  if (colonIndex === -1) {
+    console.error(`❌ Error: Invalid header format "${header}". Use "Name: Value" format.`);
+    process.exit(1);
+  }
+  const name = header.substring(0, colonIndex).trim();
+  const value = header.substring(colonIndex + 1).trim();
+  headers[name] = value;
+}
+```
+
+### Operation ID Filtering
+```typescript
+// Parse comma-separated operation IDs
+const cliOperationIds: string[] = [];
+const operationIdsOptions = Array.isArray(options.operationIds) 
+  ? options.operationIds 
+  : (options.operationIds ? [options.operationIds] : []);
+if (operationIdsOptions.length > 0) {
+  for (const operationIdsString of operationIdsOptions) {
+    const ids = operationIdsString.split(',')
+      .map((id: string) => id.trim())
+      .filter((id: string) => id.length > 0);
+    cliOperationIds.push(...ids);
+  }
+}
+```
+
+## Package Integration
+
+### Binary Configuration
+```json
+{
+  "bin": {
+    "openapi-to-ts": "dist/cli.js",
+    "ott": "dist/cli.js"
+  }
+}
+```
+
+### Version Information
+```typescript
+// Read version from package.json
+const packageJsonPath = path.join(__dirname, '..', 'package.json');
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+program.version(packageJson.version);
+```

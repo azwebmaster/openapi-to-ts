@@ -1,0 +1,123 @@
+---
+globs: *.test.ts,*.spec.ts
+---
+
+# Testing Patterns and Conventions
+
+## Test Framework
+
+This project uses **Vitest** with configuration in [vitest.config.ts](mdc:vitest.config.ts):
+- Node environment for testing
+- Coverage thresholds: 80% for branches, functions, lines, statements
+- Test files: `src/**/*.test.ts`
+- Timeout: 10 seconds
+
+## Test File Organization
+
+- **Unit Tests**: One test file per source file (e.g., `generator.test.ts` for `generator.ts`)
+- **Test Location**: Co-located with source files in `src/` directory
+- **Naming**: Use `.test.ts` suffix for test files
+
+## Test Structure
+
+### Basic Test Pattern
+```typescript
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { OpenAPIGenerator } from './generator.js';
+
+describe('OpenAPIGenerator', () => {
+  let generator: OpenAPIGenerator;
+
+  beforeEach(() => {
+    generator = new OpenAPIGenerator({
+      spec: './test-spec.yaml',
+      outputDir: './test-output'
+    });
+  });
+
+  it('should generate types correctly', async () => {
+    // Test implementation
+    expect(result).toBeDefined();
+  });
+});
+```
+
+### Async Testing
+```typescript
+it('should handle async operations', async () => {
+  const result = await generator.generate();
+  expect(result).toBeUndefined(); // generate() returns void
+});
+```
+
+### Error Testing
+```typescript
+it('should throw error for invalid spec', async () => {
+  await expect(generator.generate()).rejects.toThrow('Invalid OpenAPI spec');
+});
+```
+
+## Test Data
+
+- **Test Specs**: Use [samples/comprehensive-test-spec.yaml](mdc:samples/comprehensive-test-spec.yaml) for comprehensive testing
+- **Swagger 2.0**: Use [samples/swagger-2.0-test.json](mdc:samples/swagger-2.0-test.json) for legacy format testing
+- **Generated Output**: Compare against [samples/generated/](mdc:samples/generated/) for expected results
+
+## Mocking Patterns
+
+### File System Mocking
+```typescript
+import { vi } from 'vitest';
+import * as fs from 'fs/promises';
+
+vi.mock('fs/promises');
+const mockFs = vi.mocked(fs);
+```
+
+### Network Request Mocking
+```typescript
+import { vi } from 'vitest';
+
+vi.mock('https');
+vi.mock('http');
+```
+
+## Coverage Requirements
+
+Maintain coverage above 80% for:
+- **Branches**: All conditional paths tested
+- **Functions**: All public methods tested
+- **Lines**: All executable lines covered
+- **Statements**: All statements executed
+
+## Test Commands
+
+```bash
+# Run all tests
+bun test
+
+# Run tests in watch mode
+bun run test:watch
+
+# Run with coverage
+bun run test:coverage
+
+# Run with UI
+bun run test:ui
+```
+
+## Integration Testing
+
+Test the complete generation pipeline:
+1. Parse OpenAPI spec
+2. Generate TypeScript files
+3. Verify file contents
+4. Check type correctness
+5. Validate client functionality
+
+## Test Output Validation
+
+- **File Structure**: Verify correct files are generated
+- **Type Definitions**: Check TypeScript interfaces are correct
+- **Client Methods**: Ensure all operations are available
+- **Import/Export**: Validate module structure

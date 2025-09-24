@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { generateFromSpec, TypeOutputMode } from './index.js';
+import { generateFromSpec, TypeOutputMode, OpenAPIGenerator, OTTConfig, APIConfig } from './index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -21,28 +21,226 @@ program
   .version(packageJson.version);
 
 program
+  .command('init')
+  .description('Initialize .ott.json configuration file from OpenAPI spec')
+  .argument('<spec>', 'Path to OpenAPI specification file (YAML or JSON) or URL')
+  .option('-o, --output <dir>', 'Output directory for generated files', './generated')
+  .option('-c, --config <file>', 'Configuration file path', '.ott.json')
+  .action(async (spec: string, options) => {
+    try {
+      console.log('🔧 Initializing OpenAPI TypeScript Generator Configuration');
+      console.log('======================================================\n');
+
+      // Check if spec is a URL or file path
+      const isUrl = spec.startsWith('http://') || spec.startsWith('https://');
+
+      if (!isUrl) {
+        if (!fs.existsSync(spec)) {
+          console.error(`❌ Error: OpenAPI spec file not found: ${spec}`);
+          process.exit(1);
+        }
+      }
+
+      console.log(`📄 Input spec: ${spec}`);
+      console.log(`📁 Output directory: ${path.resolve(options.output)}`);
+      console.log(`⚙️  Config file: ${options.config}\n`);
+
+      const config = await OpenAPIGenerator.generateConfigFromSpec(
+        spec,
+        options.output,
+        options.config
+      );
+
+      console.log('✅ Configuration file created successfully!');
+      console.log(`📋 Found ${config.apis[0].operationIds?.length || 0} operations`);
+      console.log(`📝 Edit ${options.config} to customize which operations to include\n`);
+
+      console.log('Next steps:');
+      console.log('1. Edit the operationIds array in .ott.json to select which operations to generate');
+      console.log('2. Run: openapi-gen generate --config to generate the client');
+
+    } catch (error: any) {
+      console.error('\n❌ Failed to initialize configuration:');
+      console.error(`   ${error.message}`);
+      if (error.stack) {
+        console.error(error.stack);
+      }
+      process.exit(1);
+    }
+  });
+
+program
+  .command('list')
+  .description('List available operations from configuration file')
+  .option('-c, --config <file>', 'Configuration file path', '.ott.json')
+  .option('--api <name>', 'API name to list operations for (if multiple APIs in config)')
+  .action(async (options) => {
+    try {
+      console.log('📋 Available Operations');
+      console.log('======================\n');
+
+      const config = await OpenAPIGenerator.loadConfig(options.config);
+      if (!config) {
+        console.error(`❌ Error: Configuration file not found: ${options.config}`);
+        console.error('   Run "openapi-gen init <spec>" to create a configuration file first.');
+        process.exit(1);
+      }
+
+      let apiConfig: APIConfig | null = null;
+
+      if (options.api) {
+        apiConfig = config.apis.find(api => api.name === options.api) || null;
+        if (!apiConfig) {
+          console.error(`❌ Error: API "${options.api}" not found in configuration file.`);
+          console.error(`   Available APIs: ${config.apis.map(api => api.name).join(', ')}`);
+          process.exit(1);
+        }
+      } else if (config.apis.length === 1) {
+        apiConfig = config.apis[0];
+      } else {
+        console.error(`❌ Error: Multiple APIs found in configuration file. Use --api <name> to specify which one.`);
+        console.error(`   Available APIs: ${config.apis.map(api => api.name).join(', ')}`);
+        process.exit(1);
+      }
+
+      console.log(`🏷️  API: ${apiConfig.name}`);
+      console.log(`📄 Spec: ${apiConfig.spec}`);
+      console.log(`📁 Output: ${apiConfig.output || './generated'}`);
+      console.log(`🏷️  Namespace: ${apiConfig.namespace || 'API'}`);
+      console.log(`⚙️  Axios instance: ${apiConfig.axiosInstance || 'apiClient'}`);
+      console.log(`📦 Type output: ${apiConfig.typeOutput || 'single-file'}`);
+      console.log(`🎯 Selected operations: ${apiConfig.operationIds?.length || 'all'}\n`);
+
+      if (apiConfig.operationIds && apiConfig.operationIds.length > 0) {
+        console.log('Selected operations:');
+        apiConfig.operationIds.forEach((operationId, index) => {
+          console.log(`  ${index + 1}. ${operationId}`);
+        });
+      } else {
+        console.log('All operations will be generated (no filtering applied)');
+      }
+
+    } catch (error: any) {
+      console.error('\n❌ Failed to list operations:');
+      console.error(`   ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+program
   .command('generate')
   .description('Generate TypeScript client from OpenAPI spec')
-  .argument('<spec>', 'Path to OpenAPI specification file (YAML or JSON) or URL')
+  .argument('[spec]', 'Path to OpenAPI specification file (YAML or JSON) or URL (optional if config file found)')
   .option('-o, --output <dir>', 'Output directory for generated files', './generated')
   .option('-n, --namespace <name>', 'Namespace for the generated client', 'API')
   .option('-a, --axios-instance <name>', 'Name for the Axios instance', 'apiClient')
   .option('-t, --type-output <mode>', 'Type output mode: single-file, file-per-type, or group-by-tag', 'single-file')
   .option('-H, --header <header>', 'Add header for URL requests (format: "Name: Value")', [])
+  .option('-c, --config <file>', 'Use custom configuration file (default: auto-detect .ott.json)')
+  .option('--api <name>', 'API name to generate from config (if multiple APIs in config)')
+  .option('--operation-ids <ids>', 'Comma-separated list of operation IDs to include', [])
   .option('--dry-run', 'Show what would be generated without writing files')
   .action(async (spec: string, options) => {
     try {
       console.log('🚀 OpenAPI TypeScript Generator');
       console.log('================================\n');
 
-      // Check if spec is a URL or file path
-      const isUrl = spec.startsWith('http://') || spec.startsWith('https://');
+      let apiConfig: APIConfig | null = null;
 
-      if (!isUrl) {
-        // Validate input file exists
-        if (!fs.existsSync(spec)) {
-          console.error(`❌ Error: OpenAPI spec file not found: ${spec}`);
+      // Parse operation IDs early
+      const cliOperationIds: string[] = [];
+      const operationIdsOptions = Array.isArray(options.operationIds) ? options.operationIds : (options.operationIds ? [options.operationIds] : []);
+      if (operationIdsOptions.length > 0) {
+        for (const operationIdsString of operationIdsOptions) {
+          const ids = operationIdsString.split(',').map((id: string) => id.trim()).filter((id: string) => id.length > 0);
+          cliOperationIds.push(...ids);
+        }
+      }
+
+      // Determine whether the user provided generation options explicitly
+      // We inspect argv to distinguish defaults from explicit flags
+      const argv = process.argv.slice(2);
+      const generationFlags = new Set([
+        '-o', '--output',
+        '-n', '--namespace',
+        '-a', '--axios-instance',
+        '-t', '--type-output',
+        '-H', '--header',
+        '--operation-ids',
+        '--dry-run',
+      ]);
+      const hasExplicitGenFlags = argv.some(a => generationFlags.has(a));
+
+      // Determine config file path
+      let configPath: string | null = null;
+      if (options.config) {
+        // Use explicitly specified config file
+        configPath = options.config;
+      } else if (!hasExplicitGenFlags && !spec) {
+        // Auto-detect default config file only when no other options are provided
+        const defaultConfigPath = path.resolve(process.cwd(), '.ott.json');
+        if (fs.existsSync(defaultConfigPath)) {
+          configPath = defaultConfigPath;
+        }
+      }
+
+      // Handle configuration file mode
+      if (configPath) {
+        const config = await OpenAPIGenerator.loadConfig(configPath);
+        if (!config) {
+          console.error(`❌ Error: Configuration file not found: ${configPath}`);
+          console.error('   Run "openapi-gen init <spec>" to create a configuration file first.');
           process.exit(1);
+        }
+
+        if (options.api) {
+          apiConfig = config.apis.find(api => api.name === options.api) || null;
+          if (!apiConfig) {
+            console.error(`❌ Error: API "${options.api}" not found in configuration file.`);
+            console.error(`   Available APIs: ${config.apis.map(api => api.name).join(', ')}`);
+            process.exit(1);
+          }
+        } else if (config.apis.length === 1) {
+          apiConfig = config.apis[0];
+        } else {
+          console.error(`❌ Error: Multiple APIs found in configuration file. Use --api <name> to specify which one.`);
+          console.error(`   Available APIs: ${config.apis.map(api => api.name).join(', ')}`);
+          process.exit(1);
+        }
+
+        if (options.config) {
+          console.log(`📋 Using configuration: ${configPath}`);
+        } else {
+          console.log(`📋 Using default configuration from cwd: ${configPath}`);
+        }
+        console.log(`🏷️  API: ${apiConfig.name}`);
+        console.log(`📄 Input spec: ${apiConfig.spec}`);
+        console.log(`📁 Output directory: ${path.resolve(apiConfig.output || './generated')}`);
+        console.log(`🏷️  Namespace: ${apiConfig.namespace || 'API'}`);
+        console.log(`⚙️  Axios instance: ${apiConfig.axiosInstance || 'apiClient'}`);
+        console.log(`📦 Type output mode: ${apiConfig.typeOutput || 'single-file'}`);
+        if (cliOperationIds.length > 0) {
+          console.log(`🎯 Operations: ${cliOperationIds.length} selected from CLI (${cliOperationIds.join(', ')})`);
+        } else {
+          console.log(`🎯 Operations: ${apiConfig.operationIds?.length || 'all'} selected`);
+        }
+        console.log('');
+      } else {
+        // Traditional mode - validate spec
+        if (!spec) {
+          console.error('❌ Error: No spec provided and no configuration file found.');
+          console.error('   Use: openapi-gen generate <spec> or create a .ott.json configuration file');
+          process.exit(1);
+        }
+
+        const isUrl = spec.startsWith('http://') || spec.startsWith('https://');
+
+        if (!isUrl) {
+          // Validate input file exists
+          if (!fs.existsSync(spec)) {
+            console.error(`❌ Error: OpenAPI spec file not found: ${spec}`);
+            process.exit(1);
+          }
         }
       }
 
@@ -62,90 +260,132 @@ program
         }
       }
 
-      // Validate type output mode
-      const validModes = ['single-file', 'file-per-type', 'group-by-tag'];
-      if (!validModes.includes(options.typeOutput)) {
-        console.error(`❌ Error: Invalid type output mode "${options.typeOutput}". Valid modes are: ${validModes.join(', ')}`);
-        process.exit(1);
+
+      // Determine final configuration values
+      let finalSpec: string;
+      let finalOutputDir: string;
+      let finalNamespace: string;
+      let finalAxiosInstance: string;
+      let finalTypeOutputMode: TypeOutputMode;
+      let finalHeaders: Record<string, string>;
+      let finalOperationIds: string[] | undefined;
+
+      if (apiConfig) {
+        // Use configuration file values
+        finalSpec = apiConfig.spec;
+        finalOutputDir = path.resolve(apiConfig.output || './generated');
+        finalNamespace = apiConfig.namespace || 'API';
+        finalAxiosInstance = apiConfig.axiosInstance || 'apiClient';
+        
+        // Map typeOutput string to TypeOutputMode enum
+        const typeOutputModeMap: Record<string, TypeOutputMode> = {
+          'single-file': TypeOutputMode.SingleFile,
+          'file-per-type': TypeOutputMode.FilePerType,
+          'group-by-tag': TypeOutputMode.GroupByTag,
+        };
+        finalTypeOutputMode = typeOutputModeMap[apiConfig.typeOutput || 'single-file'];
+        
+        finalHeaders = { ...apiConfig.headers, ...headers }; // CLI headers override config headers
+        finalOperationIds = cliOperationIds.length > 0 ? cliOperationIds : apiConfig.operationIds;
+      } else {
+        // Use CLI options
+        const isUrl = spec.startsWith('http://') || spec.startsWith('https://');
+        
+        // Validate type output mode
+        const validModes = ['single-file', 'file-per-type', 'group-by-tag'];
+        if (!validModes.includes(options.typeOutput)) {
+          console.error(`❌ Error: Invalid type output mode "${options.typeOutput}". Valid modes are: ${validModes.join(', ')}`);
+          process.exit(1);
+        }
+
+        // Map string to enum value
+        const typeOutputModeMap: Record<string, TypeOutputMode> = {
+          'single-file': TypeOutputMode.SingleFile,
+          'file-per-type': TypeOutputMode.FilePerType,
+          'group-by-tag': TypeOutputMode.GroupByTag,
+        };
+
+        finalSpec = isUrl ? spec : path.resolve(spec);
+        finalOutputDir = path.resolve(options.output);
+        finalNamespace = options.namespace;
+        finalAxiosInstance = options.axiosInstance;
+        finalTypeOutputMode = typeOutputModeMap[options.typeOutput];
+        finalHeaders = headers;
+        finalOperationIds = cliOperationIds.length > 0 ? cliOperationIds : undefined;
+
+        console.log(`📄 Input spec: ${finalSpec}`);
+        if (isUrl && Object.keys(headers).length > 0) {
+          console.log(`🔑 Headers: ${Object.keys(headers).join(', ')} (${Object.keys(headers).length} header(s))`);
+        }
+        console.log(`📁 Output directory: ${finalOutputDir}`);
+        console.log(`🏷️  Namespace: ${finalNamespace}`);
+        console.log(`⚙️  Axios instance: ${finalAxiosInstance}`);
+        console.log(`📦 Type output mode: ${options.typeOutput}`);
+        if (cliOperationIds.length > 0) {
+          console.log(`🎯 Operations: ${cliOperationIds.length} selected from CLI (${cliOperationIds.join(', ')})`);
+        } else {
+          console.log(`🎯 Operations: all`);
+        }
+        console.log('');
       }
-
-      // Map string to enum value
-      const typeOutputModeMap: Record<string, TypeOutputMode> = {
-        'single-file': TypeOutputMode.SingleFile,
-        'file-per-type': TypeOutputMode.FilePerType,
-        'group-by-tag': TypeOutputMode.GroupByTag,
-      };
-      const typeOutputMode = typeOutputModeMap[options.typeOutput];
-
-      // Get absolute paths
-      const inputSpec = isUrl ? spec : path.resolve(spec);
-      const outputDir = path.resolve(options.output);
-
-      console.log(`📄 Input spec: ${inputSpec}`);
-      if (isUrl && Object.keys(headers).length > 0) {
-        console.log(`🔑 Headers: ${Object.keys(headers).join(', ')} (${Object.keys(headers).length} header(s))`);
-      }
-      console.log(`📁 Output directory: ${outputDir}`);
-      console.log(`🏷️  Namespace: ${options.namespace}`);
-      console.log(`⚙️  Axios instance: ${options.axiosInstance}`);
-      console.log(`📦 Type output mode: ${options.typeOutput}\n`);
 
       if (options.dryRun) {
         console.log('🔍 Dry run mode - no files will be written\n');
         console.log('Would generate:');
 
-        switch (options.typeOutput) {
-          case 'file-per-type':
-            console.log(`  ${outputDir}/types.ts - Re-exports all types`);
-            console.log(`  ${outputDir}/types/*.ts - Individual type files`);
+        switch (finalTypeOutputMode) {
+          case TypeOutputMode.FilePerType:
+            console.log(`  ${finalOutputDir}/types.ts - Re-exports all types`);
+            console.log(`  ${finalOutputDir}/types/*.ts - Individual type files`);
             break;
-          case 'group-by-tag':
-            console.log(`  ${outputDir}/types.ts - Re-exports all types`);
-            console.log(`  ${outputDir}/types/*.ts - Types grouped by tag/category`);
+          case TypeOutputMode.GroupByTag:
+            console.log(`  ${finalOutputDir}/types.ts - Re-exports all types`);
+            console.log(`  ${finalOutputDir}/types/*.ts - Types grouped by tag/category`);
             break;
           default:
-            console.log(`  ${outputDir}/types.ts - All TypeScript interfaces`);
+            console.log(`  ${finalOutputDir}/types.ts - All TypeScript interfaces`);
             break;
         }
 
-        console.log(`  ${outputDir}/client.ts - Axios client class`);
-        console.log(`  ${outputDir}/index.ts - Exports and factory function`);
+        console.log(`  ${finalOutputDir}/client.ts - Axios client class`);
+        console.log(`  ${finalOutputDir}/index.ts - Exports and factory function`);
         return;
       }
 
       // Generate the client
       await generateFromSpec({
-        inputSpec,
-        outputDir,
-        namespace: options.namespace,
-        axiosInstanceName: options.axiosInstance,
-        typeOutputMode,
-        headers: Object.keys(headers).length > 0 ? headers : undefined
+        spec: finalSpec,
+        outputDir: finalOutputDir,
+        namespace: finalNamespace,
+        axiosInstanceName: finalAxiosInstance,
+        typeOutputMode: finalTypeOutputMode,
+        headers: Object.keys(finalHeaders).length > 0 ? finalHeaders : undefined,
+        operationIds: finalOperationIds
       });
 
       console.log('✅ Generation completed successfully!\n');
       console.log('Generated files:');
 
-      switch (options.typeOutput) {
-        case 'file-per-type':
-          console.log(`  📄 ${path.relative(process.cwd(), outputDir)}/types.ts (re-exports)`);
-          console.log(`  📁 ${path.relative(process.cwd(), outputDir)}/types/*.ts (individual type files)`);
+      switch (finalTypeOutputMode) {
+        case TypeOutputMode.FilePerType:
+          console.log(`  📄 ${path.relative(process.cwd(), finalOutputDir)}/types.ts (re-exports)`);
+          console.log(`  📁 ${path.relative(process.cwd(), finalOutputDir)}/types/*.ts (individual type files)`);
           break;
-        case 'group-by-tag':
-          console.log(`  📄 ${path.relative(process.cwd(), outputDir)}/types.ts (re-exports)`);
-          console.log(`  📁 ${path.relative(process.cwd(), outputDir)}/types/*.ts (grouped type files)`);
+        case TypeOutputMode.GroupByTag:
+          console.log(`  📄 ${path.relative(process.cwd(), finalOutputDir)}/types.ts (re-exports)`);
+          console.log(`  📁 ${path.relative(process.cwd(), finalOutputDir)}/types/*.ts (grouped type files)`);
           break;
         default:
-          console.log(`  📄 ${path.relative(process.cwd(), outputDir)}/types.ts`);
+          console.log(`  📄 ${path.relative(process.cwd(), finalOutputDir)}/types.ts`);
           break;
       }
 
-      console.log(`  📄 ${path.relative(process.cwd(), outputDir)}/client.ts`);
-      console.log(`  📄 ${path.relative(process.cwd(), outputDir)}/index.ts\n`);
+      console.log(`  📄 ${path.relative(process.cwd(), finalOutputDir)}/client.ts`);
+      console.log(`  📄 ${path.relative(process.cwd(), finalOutputDir)}/index.ts\n`);
 
       console.log('Usage:');
       console.log('```typescript');
-      console.log(`import { createClient } from '${path.relative(process.cwd(), outputDir)}';`);
+      console.log(`import { createClient } from '${path.relative(process.cwd(), finalOutputDir)}';`);
       console.log('');
       console.log('const client = createClient("https://api.example.com");');
       console.log('const response = await client.someMethod();');
@@ -204,7 +444,7 @@ program
       if (isUrl) {
         // Use the same fetch logic as in generator
         const { OpenAPIGenerator } = await import('./generator.js');
-        const generator = new OpenAPIGenerator({ inputSpec: spec, outputDir: '', headers });
+        const generator = new OpenAPIGenerator({ spec, outputDir: '', headers });
         const generatorInstance = generator as any;
         specInput = await generatorInstance.fetchFromUrl(spec, headers);
       }

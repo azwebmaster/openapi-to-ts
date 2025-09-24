@@ -21,7 +21,7 @@ describe('index', () => {
 
     it('should create and use OpenAPIGenerator instance', () => {
       const options = {
-        inputSpec: './test.yaml',
+        spec: './test.yaml',
         outputDir: './generated',
         namespace: 'TestAPI',
         axiosInstanceName: 'testClient'
