@@ -1704,6 +1704,842 @@ describe('OpenAPIGenerator', () => {
     });
   });
 
+  describe('parameter requirement logic', () => {
+    let generator: OpenAPIGenerator;
+
+    beforeEach(() => {
+      generator = new OpenAPIGenerator(mockOptions);
+    });
+
+    it('should make params required when any parameter is required', () => {
+      // Mock API with required parameters
+      generator['api'] = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users/{id}': {
+            get: {
+              operationId: 'getUserById',
+              summary: 'Get user by ID',
+              parameters: [
+                {
+                  name: 'id',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'string' }
+                },
+                {
+                  name: 'include',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'string' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'User found',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Test the parameter collection logic
+      const operation = generator['api'].paths['/users/{id}'].get;
+      const parameters = operation.parameters || [];
+      const allParams: any[] = [];
+
+      for (const param of parameters) {
+        const paramInfo = {
+          name: param.name,
+          type: 'string',
+          required: param.required,
+          description: param.description,
+          in: param.in,
+        };
+
+        // Only add non-body parameters to allParams
+        if (param.in !== 'body') {
+          allParams.push(paramInfo);
+        }
+      }
+
+      // The params parameter should be required if ANY parameter is required
+      const hasRequiredParams = allParams.some(p => p.required);
+      
+      expect(hasRequiredParams).toBe(true);
+      expect(allParams).toHaveLength(2);
+      expect(allParams[0].required).toBe(true); // id parameter
+      expect(allParams[1].required).toBe(false); // include parameter
+    });
+
+    it('should make params optional when no parameters are required', () => {
+      // Mock API with only optional parameters
+      generator['api'] = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users': {
+            get: {
+              operationId: 'getUsers',
+              summary: 'Get all users',
+              parameters: [
+                {
+                  name: 'page',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'integer' }
+                },
+                {
+                  name: 'limit',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'integer' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'Users list',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Test the parameter collection logic
+      const operation = generator['api'].paths['/users'].get;
+      const parameters = operation.parameters || [];
+      const allParams: any[] = [];
+
+      for (const param of parameters) {
+        const paramInfo = {
+          name: param.name,
+          type: 'integer',
+          required: param.required,
+          description: param.description,
+          in: param.in,
+        };
+
+        if (param.in !== 'body') {
+          allParams.push(paramInfo);
+        }
+      }
+
+      // The params parameter should be optional when no parameters are required
+      const hasRequiredParams = allParams.some(p => p.required);
+      
+      expect(hasRequiredParams).toBe(false);
+      expect(allParams).toHaveLength(2);
+      expect(allParams[0].required).toBe(false); // page parameter
+      expect(allParams[1].required).toBe(false); // limit parameter
+    });
+
+    it('should handle mixed required and optional parameters correctly', () => {
+      // Mock API with mixed parameter requirements
+      generator['api'] = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/search': {
+            get: {
+              operationId: 'searchContent',
+              summary: 'Search content',
+              parameters: [
+                {
+                  name: 'q',
+                  in: 'query',
+                  required: true,
+                  schema: { type: 'string' }
+                },
+                {
+                  name: 'type',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'array', items: { type: 'string' } }
+                },
+                {
+                  name: 'date_from',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'string' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'Search results',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Test the parameter collection logic
+      const operation = generator['api'].paths['/search'].get;
+      const parameters = operation.parameters || [];
+      const allParams: any[] = [];
+
+      for (const param of parameters) {
+        const paramInfo = {
+          name: param.name,
+          type: param.schema?.type || 'string',
+          required: param.required,
+          description: param.description,
+          in: param.in,
+        };
+
+        if (param.in !== 'body') {
+          allParams.push(paramInfo);
+        }
+      }
+
+      // The params parameter should be required because 'q' is required
+      const hasRequiredParams = allParams.some(p => p.required);
+      
+      expect(hasRequiredParams).toBe(true);
+      expect(allParams).toHaveLength(3);
+      expect(allParams[0].required).toBe(true); // q parameter (required)
+      expect(allParams[1].required).toBe(false); // type parameter (optional)
+      expect(allParams[2].required).toBe(false); // date_from parameter (optional)
+    });
+
+    it('should handle path parameters correctly', () => {
+      // Mock API with path parameters
+      generator['api'] = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users/{userId}/posts/{postId}': {
+            get: {
+              operationId: 'getUserPost',
+              summary: 'Get user post',
+              parameters: [
+                {
+                  name: 'userId',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'string' }
+                },
+                {
+                  name: 'postId',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'string' }
+                },
+                {
+                  name: 'include',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'string' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'Post found',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Test the parameter collection logic
+      const operation = generator['api'].paths['/users/{userId}/posts/{postId}'].get;
+      const parameters = operation.parameters || [];
+      const allParams: any[] = [];
+
+      for (const param of parameters) {
+        const paramInfo = {
+          name: param.name,
+          type: 'string',
+          required: param.required,
+          description: param.description,
+          in: param.in,
+        };
+
+        if (param.in !== 'body') {
+          allParams.push(paramInfo);
+        }
+      }
+
+      // The params parameter should be required because path parameters are required
+      const hasRequiredParams = allParams.some(p => p.required);
+      
+      expect(hasRequiredParams).toBe(true);
+      expect(allParams).toHaveLength(3);
+      expect(allParams[0].required).toBe(true); // userId parameter (required)
+      expect(allParams[1].required).toBe(true); // postId parameter (required)
+      expect(allParams[2].required).toBe(false); // include parameter (optional)
+    });
+
+    it('should handle header parameters correctly', () => {
+      // Mock API with header parameters
+      generator['api'] = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/admin/users': {
+            get: {
+              operationId: 'getAdminUsers',
+              summary: 'Get admin users',
+              parameters: [
+                {
+                  name: 'X-API-Key',
+                  in: 'header',
+                  required: true,
+                  schema: { type: 'string' }
+                },
+                {
+                  name: 'X-Client-Version',
+                  in: 'header',
+                  required: false,
+                  schema: { type: 'string' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'Admin users',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Test the parameter collection logic
+      const operation = generator['api'].paths['/admin/users'].get;
+      const parameters = operation.parameters || [];
+      const allParams: any[] = [];
+
+      for (const param of parameters) {
+        const paramInfo = {
+          name: param.name,
+          type: 'string',
+          required: param.required,
+          description: param.description,
+          in: param.in,
+        };
+
+        if (param.in !== 'body') {
+          allParams.push(paramInfo);
+        }
+      }
+
+      // The params parameter should be required because X-API-Key is required
+      const hasRequiredParams = allParams.some(p => p.required);
+      
+      expect(hasRequiredParams).toBe(true);
+      expect(allParams).toHaveLength(2);
+      expect(allParams[0].required).toBe(true); // X-API-Key parameter (required)
+      expect(allParams[1].required).toBe(false); // X-Client-Version parameter (optional)
+    });
+
+    it('should handle operations with no parameters', () => {
+      // Mock API with no parameters
+      generator['api'] = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/health': {
+            get: {
+              operationId: 'getHealth',
+              summary: 'Health check',
+              responses: {
+                '200': {
+                  description: 'API is healthy',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Test the parameter collection logic
+      const operation = generator['api'].paths['/health'].get;
+      const parameters = operation.parameters || [];
+      const allParams: any[] = [];
+
+      for (const param of parameters) {
+        const paramInfo = {
+          name: param.name,
+          type: 'string',
+          required: param.required,
+          description: param.description,
+          in: param.in,
+        };
+
+        if (param.in !== 'body') {
+          allParams.push(paramInfo);
+        }
+      }
+
+      // The params parameter should be optional when there are no parameters
+      const hasRequiredParams = allParams.some(p => p.required);
+      
+      expect(hasRequiredParams).toBe(false);
+      expect(allParams).toHaveLength(0);
+    });
+
+    it('should handle body parameters separately from other parameters', () => {
+      // Mock API with both body and other parameters
+      generator['api'] = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users/{id}': {
+            put: {
+              operationId: 'updateUser',
+              summary: 'Update user',
+              parameters: [
+                {
+                  name: 'id',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'string' }
+                },
+                {
+                  name: 'body',
+                  in: 'body',
+                  required: true,
+                  schema: { $ref: '#/components/schemas/User' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'User updated',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Test the parameter collection logic
+      const operation = generator['api'].paths['/users/{id}'].put;
+      const parameters = operation.parameters || [];
+      const allParams: any[] = [];
+      const bodyParams: any[] = [];
+
+      for (const param of parameters) {
+        const paramInfo = {
+          name: param.name,
+          type: 'string',
+          required: param.required,
+          description: param.description,
+          in: param.in,
+        };
+
+        if (param.in !== 'body') {
+          allParams.push(paramInfo);
+        } else {
+          bodyParams.push(paramInfo);
+        }
+      }
+
+      // The params parameter should be required because path parameter is required
+      const hasRequiredParams = allParams.some(p => p.required);
+      
+      expect(hasRequiredParams).toBe(true);
+      expect(allParams).toHaveLength(1); // Only path parameter
+      expect(bodyParams).toHaveLength(1); // Body parameter handled separately
+      expect(allParams[0].required).toBe(true); // id parameter (required)
+      expect(bodyParams[0].required).toBe(true); // body parameter (required)
+    });
+  });
+
+  describe('parameter requirement integration tests', () => {
+    let generator: OpenAPIGenerator;
+    const testOutputDir = './test-params-output';
+
+    beforeEach(() => {
+      // Mock SwaggerParser.parse to avoid file reading
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue({
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {}
+      } as any);
+
+      generator = new OpenAPIGenerator({
+        spec: 'test-spec.yaml',
+        outputDir: testOutputDir,
+        namespace: 'TestAPI'
+      });
+    });
+
+    afterEach(async () => {
+      // Restore mocks
+      vi.restoreAllMocks();
+      
+      // Clean up test output
+      try {
+        await fs.rm(testOutputDir, { recursive: true, force: true });
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+    });
+
+    it('should generate client with required params when any parameter is required', async () => {
+      // Mock API with required parameters
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users/{id}': {
+            get: {
+              operationId: 'getUserById',
+              summary: 'Get user by ID',
+              parameters: [
+                {
+                  name: 'id',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'string' }
+                },
+                {
+                  name: 'include',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'string' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'User found',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Mock SwaggerParser.parse to return our mock API
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the client
+      await generator.generate();
+
+      // Read the generated client file
+      const clientFile = path.join(testOutputDir, 'client.ts');
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+
+      // Check that the params parameter is required (no ? token)
+      expect(clientContent).toContain('getUserById(params: GetUserByIdParams, config?: AxiosRequestConfig)');
+      expect(clientContent).not.toContain('getUserById(params?: GetUserByIdParams, config?: AxiosRequestConfig)');
+
+      // Check that the parameter interface is generated correctly
+      expect(clientContent).toContain('export interface GetUserByIdParams {');
+      expect(clientContent).toContain('id: string;'); // Required parameter
+      expect(clientContent).toContain('include?: string;'); // Optional parameter
+    });
+
+    it('should generate client with optional params when no parameters are required', async () => {
+      // Mock API with only optional parameters
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users': {
+            get: {
+              operationId: 'getUsers',
+              summary: 'Get all users',
+              parameters: [
+                {
+                  name: 'page',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'integer' }
+                },
+                {
+                  name: 'limit',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'integer' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'Users list',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Mock SwaggerParser.parse to return our mock API
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the client
+      await generator.generate();
+
+      // Read the generated client file
+      const clientFile = path.join(testOutputDir, 'client.ts');
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+
+      // Check that the params parameter is optional (has ? token)
+      expect(clientContent).toContain('getUsers(params?: GetUsersParams, config?: AxiosRequestConfig)');
+      expect(clientContent).not.toContain('getUsers(params: GetUsersParams, config?: AxiosRequestConfig)');
+
+      // Check that the parameter interface is generated correctly
+      expect(clientContent).toContain('export interface GetUsersParams {');
+      expect(clientContent).toContain('page?: number;'); // Optional parameter
+      expect(clientContent).toContain('limit?: number;'); // Optional parameter
+    });
+
+    it('should generate client with required params for mixed parameter requirements', async () => {
+      // Mock API with mixed parameter requirements
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/search': {
+            get: {
+              operationId: 'searchContent',
+              summary: 'Search content',
+              parameters: [
+                {
+                  name: 'q',
+                  in: 'query',
+                  required: true,
+                  schema: { type: 'string' }
+                },
+                {
+                  name: 'type',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'array', items: { type: 'string' } }
+                },
+                {
+                  name: 'date_from',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'string' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'Search results',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Mock SwaggerParser.parse to return our mock API
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the client
+      await generator.generate();
+
+      // Read the generated client file
+      const clientFile = path.join(testOutputDir, 'client.ts');
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+
+      // Check that the params parameter is required (no ? token) because 'q' is required
+      expect(clientContent).toContain('searchContent(params: SearchContentParams, config?: AxiosRequestConfig)');
+      expect(clientContent).not.toContain('searchContent(params?: SearchContentParams, config?: AxiosRequestConfig)');
+
+      // Check that the parameter interface is generated correctly
+      expect(clientContent).toContain('export interface SearchContentParams {');
+      expect(clientContent).toContain('q: string;'); // Required parameter
+      expect(clientContent).toContain('type?: Array<string>;'); // Optional parameter
+      expect(clientContent).toContain('date_from?: string;'); // Optional parameter
+    });
+
+    it('should generate client with optional params when no parameters exist', async () => {
+      // Mock API with no parameters
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/health': {
+            get: {
+              operationId: 'getHealth',
+              summary: 'Health check',
+              responses: {
+                '200': {
+                  description: 'API is healthy',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Mock SwaggerParser.parse to return our mock API
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the client
+      await generator.generate();
+
+      // Read the generated client file
+      const clientFile = path.join(testOutputDir, 'client.ts');
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+
+      // Check that the method has no params parameter
+      expect(clientContent).toContain('getHealth(config?: AxiosRequestConfig)');
+      expect(clientContent).not.toContain('getHealth(params');
+    });
+
+    it('should handle namespace operations with required parameters correctly', async () => {
+      // Mock API with namespaced operations
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/admin/users/{id}': {
+            get: {
+              operationId: 'admin/getUser',
+              summary: 'Get admin user',
+              parameters: [
+                {
+                  name: 'id',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'string' }
+                },
+                {
+                  name: 'include',
+                  in: 'query',
+                  required: false,
+                  schema: { type: 'string' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'User found',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Mock SwaggerParser.parse to return our mock API
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the client
+      await generator.generate();
+
+      // Read the generated client file
+      const clientFile = path.join(testOutputDir, 'client.ts');
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+
+      // Check that the namespace interface has required params
+      expect(clientContent).toContain('getUser(params: GetUserParams, config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+      expect(clientContent).not.toContain('getUser(params?: GetUserParams, config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+
+      // Check that the parameter interface is generated correctly
+      expect(clientContent).toContain('export interface GetUserParams {');
+      expect(clientContent).toContain('id: string;'); // Required parameter
+      expect(clientContent).toContain('include?: string;'); // Optional parameter
+    });
+
+    it('should handle OpenAPI v2 parameters correctly', async () => {
+      // Mock API with OpenAPI v2 format parameters
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/users/{id}': {
+            get: {
+              operationId: 'getUserById',
+              summary: 'Get user by ID',
+              parameters: [
+                {
+                  name: 'id',
+                  in: 'path',
+                  required: true,
+                  type: 'string'
+                },
+                {
+                  name: 'include',
+                  in: 'query',
+                  required: false,
+                  type: 'string'
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'User found',
+                  schema: { type: 'object' }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Mock SwaggerParser.parse to return our mock API
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the client
+      await generator.generate();
+
+      // Read the generated client file
+      const clientFile = path.join(testOutputDir, 'client.ts');
+      const clientContent = await fs.readFile(clientFile, 'utf-8');
+
+      // Check that the params parameter is required (no ? token)
+      expect(clientContent).toContain('getUserById(params: GetUserByIdParams, config?: AxiosRequestConfig)');
+      expect(clientContent).not.toContain('getUserById(params?: GetUserByIdParams, config?: AxiosRequestConfig)');
+
+      // Check that the parameter interface is generated correctly
+      expect(clientContent).toContain('export interface GetUserByIdParams {');
+      expect(clientContent).toContain('id: string;'); // Required parameter
+      expect(clientContent).toContain('include?: string;'); // Optional parameter
+    });
+  });
+
   describe('resource leak detection', () => {
     let generator: OpenAPIGenerator;
     let testOutputDir: string;

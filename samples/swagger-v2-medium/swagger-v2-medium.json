@@ -1,0 +1,865 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Medium Complexity Swagger API",
+    "version": "1.0.0",
+    "description": "A medium complexity Swagger 2.0 specification with authentication, file uploads, and complex schemas",
+    "contact": {
+      "name": "API Support",
+      "email": "support@example.com"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "host": "api.example.com",
+  "basePath": "/v1",
+  "schemes": ["https"],
+  "consumes": ["application/json", "multipart/form-data"],
+  "produces": ["application/json"],
+  "securityDefinitions": {
+    "BearerAuth": {
+      "type": "apiKey",
+      "name": "Authorization",
+      "in": "header",
+      "description": "Bearer token authentication"
+    },
+    "ApiKeyAuth": {
+      "type": "apiKey",
+      "name": "X-API-Key",
+      "in": "header",
+      "description": "API key authentication"
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    },
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "definitions": {
+    "User": {
+      "type": "object",
+      "required": ["id", "email", "name", "role", "createdAt"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "readOnly": true
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "user", "guest"]
+        },
+        "avatar": {
+          "type": "string",
+          "format": "uri"
+        },
+        "preferences": {
+          "$ref": "#/definitions/UserPreferences"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "readOnly": true
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "readOnly": true
+        }
+      }
+    },
+    "UserPreferences": {
+      "type": "object",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "enum": ["light", "dark", "auto"],
+          "default": "auto"
+        },
+        "language": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+          "default": "en"
+        },
+        "notifications": {
+          "type": "object",
+          "properties": {
+            "email": {
+              "type": "boolean",
+              "default": true
+            },
+            "push": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      }
+    },
+    "CreateUserRequest": {
+      "type": "object",
+      "required": ["email", "name", "password"],
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "password": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "format": "password"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "guest"],
+          "default": "user"
+        },
+        "preferences": {
+          "$ref": "#/definitions/UserPreferences"
+        }
+      }
+    },
+    "UpdateUserRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "user", "guest"]
+        },
+        "preferences": {
+          "$ref": "#/definitions/UserPreferences"
+        }
+      }
+    },
+    "UserListResponse": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/User"
+          }
+        },
+        "pagination": {
+          "$ref": "#/definitions/Pagination"
+        },
+        "meta": {
+          "type": "object",
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "filtered": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "Product": {
+      "type": "object",
+      "required": ["id", "name", "price", "category", "inStock", "createdAt"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "readOnly": true
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "price": {
+          "type": "number",
+          "minimum": 0,
+          "multipleOf": 0.01
+        },
+        "category": {
+          "type": "string",
+          "enum": ["electronics", "clothing", "books", "home"]
+        },
+        "inStock": {
+          "type": "boolean"
+        },
+        "stockQuantity": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          },
+          "maxItems": 5
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "readOnly": true
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "readOnly": true
+        }
+      }
+    },
+    "CreateProductRequest": {
+      "type": "object",
+      "required": ["name", "price", "category"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "price": {
+          "type": "number",
+          "minimum": 0,
+          "multipleOf": 0.01
+        },
+        "category": {
+          "type": "string",
+          "enum": ["electronics", "clothing", "books", "home"]
+        },
+        "inStock": {
+          "type": "boolean",
+          "default": true
+        },
+        "stockQuantity": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10
+        }
+      }
+    },
+    "ProductListResponse": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Product"
+          }
+        },
+        "pagination": {
+          "$ref": "#/definitions/Pagination"
+        }
+      }
+    },
+    "SearchResults": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchResult"
+          }
+        },
+        "total": {
+          "type": "integer"
+        },
+        "took": {
+          "type": "integer",
+          "description": "Time taken in milliseconds"
+        }
+      }
+    },
+    "SearchResult": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["user", "product"]
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "FileInfo": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "filename": {
+          "type": "string"
+        },
+        "originalName": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "uploadedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "Pagination": {
+      "type": "object",
+      "properties": {
+        "page": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "totalPages": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hasNext": {
+          "type": "boolean"
+        },
+        "hasPrev": {
+          "type": "boolean"
+        }
+      }
+    },
+    "HealthStatus": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["healthy", "degraded", "unhealthy"]
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "string"
+        },
+        "uptime": {
+          "type": "number",
+          "description": "Uptime in seconds"
+        }
+      }
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object"
+        },
+        "traceId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    }
+  },
+  "paths": {
+    "/users": {
+      "get": {
+        "operationId": "getUsers",
+        "summary": "Get all users",
+        "description": "Retrieve a paginated list of users with filtering",
+        "tags": ["Users"],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "type": "integer",
+            "minimum": 1,
+            "default": 1
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "type": "string",
+            "description": "Search by name or email"
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "type": "string",
+            "enum": ["admin", "user", "guest"]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "schema": {
+              "$ref": "#/definitions/UserListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createUser",
+        "summary": "Create a new user",
+        "description": "Create a new user account with validation",
+        "tags": ["Users"],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/CreateUserRequest"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "User created successfully",
+            "schema": {
+              "$ref": "#/definitions/User"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "User already exists",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/users/{userId}": {
+      "parameters": [
+        {
+          "name": "userId",
+          "in": "path",
+          "required": true,
+          "type": "string",
+          "format": "uuid",
+          "description": "The unique identifier of the user"
+        }
+      ],
+      "get": {
+        "operationId": "getUserById",
+        "summary": "Get user by ID",
+        "description": "Retrieve a specific user by their ID",
+        "tags": ["Users"],
+        "responses": {
+          "200": {
+            "description": "User found",
+            "schema": {
+              "$ref": "#/definitions/User"
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateUser",
+        "summary": "Update user",
+        "description": "Update an existing user (full update)",
+        "tags": ["Users"],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UpdateUserRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User updated successfully",
+            "schema": {
+              "$ref": "#/definitions/User"
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteUser",
+        "summary": "Delete user",
+        "description": "Delete an existing user",
+        "tags": ["Users"],
+        "responses": {
+          "204": {
+            "description": "User deleted successfully"
+          },
+          "404": {
+            "description": "User not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/users/{userId}/avatar": {
+      "post": {
+        "operationId": "uploadUserAvatar",
+        "summary": "Upload user avatar",
+        "description": "Upload an avatar image for a user",
+        "tags": ["Users"],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "file",
+            "in": "formData",
+            "required": true,
+            "type": "file",
+            "description": "Avatar image file"
+          },
+          {
+            "name": "description",
+            "in": "formData",
+            "type": "string",
+            "maxLength": 200,
+            "description": "Optional description of the avatar"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Avatar uploaded successfully",
+            "schema": {
+              "$ref": "#/definitions/FileInfo"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "File too large",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/products": {
+      "get": {
+        "operationId": "getProducts",
+        "summary": "Get products",
+        "description": "Get a list of products with filtering and sorting",
+        "tags": ["Products"],
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "type": "string",
+            "enum": ["electronics", "clothing", "books", "home"]
+          },
+          {
+            "name": "minPrice",
+            "in": "query",
+            "type": "number",
+            "minimum": 0
+          },
+          {
+            "name": "maxPrice",
+            "in": "query",
+            "type": "number",
+            "minimum": 0
+          },
+          {
+            "name": "inStock",
+            "in": "query",
+            "type": "boolean"
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "type": "string",
+            "enum": ["name", "price", "createdAt"],
+            "default": "name"
+          },
+          {
+            "name": "sortOrder",
+            "in": "query",
+            "type": "string",
+            "enum": ["asc", "desc"],
+            "default": "asc"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of products",
+            "schema": {
+              "$ref": "#/definitions/ProductListResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createProduct",
+        "summary": "Create a new product",
+        "description": "Create a new product with validation",
+        "tags": ["Products"],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/CreateProductRequest"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Product created successfully",
+            "schema": {
+              "$ref": "#/definitions/Product"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/products/{productId}": {
+      "parameters": [
+        {
+          "name": "productId",
+          "in": "path",
+          "required": true,
+          "type": "string",
+          "format": "uuid"
+        }
+      ],
+      "get": {
+        "operationId": "getProductById",
+        "summary": "Get product by ID",
+        "description": "Retrieve a specific product by its ID",
+        "tags": ["Products"],
+        "responses": {
+          "200": {
+            "description": "Product found",
+            "schema": {
+              "$ref": "#/definitions/Product"
+            }
+          },
+          "404": {
+            "description": "Product not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/search": {
+      "get": {
+        "operationId": "searchContent",
+        "summary": "Search content",
+        "description": "Search across users and products",
+        "tags": ["Search"],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Search query"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["users", "products"]
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 10
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "schema": {
+              "$ref": "#/definitions/SearchResults"
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Health check",
+        "description": "Check API health status",
+        "tags": ["Health"],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "API is healthy",
+            "schema": {
+              "$ref": "#/definitions/HealthStatus"
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Users",
+      "description": "User management operations"
+    },
+    {
+      "name": "Products",
+      "description": "Product management operations"
+    },
+    {
+      "name": "Search",
+      "description": "Search operations"
+    },
+    {
+      "name": "Health",
+      "description": "API health and monitoring"
+    }
+  ]
+}

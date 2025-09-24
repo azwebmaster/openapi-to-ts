@@ -1220,11 +1220,12 @@ ${operations.map(({ operationId }) => {
       paramsTypeName = `${this.toTypeName(methodName)}Params`;
       this.generateParameterInterface(interfaceDeclaration.getSourceFile(), paramsTypeName, allParams);
 
-      const allRequired = allParams.filter(p => p.required).length > 0;
+      // The params parameter should be required if ANY parameter is required
+      const hasRequiredParams = allParams.some(p => p.required);
       methodParams.push({
         name: 'params',
         type: paramsTypeName,
-        hasQuestionToken: !allRequired,
+        hasQuestionToken: !hasRequiredParams,
       });
     }
 
@@ -1387,14 +1388,13 @@ ${operations.map(({ operationId }) => {
       paramsTypeName = `${this.toTypeName(baseMethodName)}Params`;
       this.generateParameterInterface(classDeclaration.getSourceFile(), paramsTypeName, allParams);
 
-      // If we have body parameters, we need to make params optional to avoid "required parameter cannot follow optional parameter"
-      const allRequired = allParams.filter(p => p.required).length > 0;
-      const shouldMakeParamsOptional = hasRequestBody || !allRequired;
+      // The params parameter should be required if ANY parameter is required
+      const hasRequiredParams = allParams.some(p => p.required);
       
       methodParams.push({
         name: 'params',
         type: paramsTypeName,
-        hasQuestionToken: shouldMakeParamsOptional,
+        hasQuestionToken: !hasRequiredParams,
       });
     }
 

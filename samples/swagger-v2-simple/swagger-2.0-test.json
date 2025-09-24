@@ -161,6 +161,43 @@
           }
         }
       }
+    },
+    "/products": {
+      "post": {
+        "operationId": "createProduct",
+        "summary": "Create a new product with optional filtering",
+        "parameters": [
+          {
+            "name": "includeMetadata",
+            "in": "query",
+            "type": "boolean",
+            "required": false,
+            "description": "Whether to include additional metadata in the response"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Product"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Product created successfully",
+            "schema": {
+              "$ref": "#/definitions/Product"
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid product data",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
     }
   }
 }
