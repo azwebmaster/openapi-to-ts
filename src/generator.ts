@@ -770,32 +770,33 @@ export class OpenAPIGenerator {
           const parameters = operation.parameters || [];
           for (const param of parameters) {
             const paramSchema = this.getParameterSchema(param);
-            this.collectTypesFromSchema(paramSchema, usedTypes, allSchemas);
+            this.collectTypesFromSchema(paramSchema, usedTypes, allSchemas, new Set());
           }
 
           // Collect types from request body
           if (operation.requestBody?.content) {
             for (const content of Object.values(operation.requestBody.content) as any[]) {
               if (content.schema) {
-                this.collectTypesFromSchema(content.schema, usedTypes, allSchemas);
+                this.collectTypesFromSchema(content.schema, usedTypes, allSchemas, new Set());
               }
             }
           }
 
-          // Collect types from responses
+          // Collect types from success responses only (matching getResponseType logic)
           if (operation.responses) {
-            for (const response of Object.values(operation.responses) as any[]) {
+            const successResponse = operation.responses['200'] || operation.responses['201'] || operation.responses['204'];
+            if (successResponse) {
               // OpenAPI v3 format: responses have content property
-              if (response.content) {
-                for (const content of Object.values(response.content) as any[]) {
+              if (successResponse.content) {
+                for (const content of Object.values(successResponse.content) as any[]) {
                   if (content.schema) {
-                    this.collectTypesFromSchema(content.schema, usedTypes, allSchemas);
+                    this.collectTypesFromSchema(content.schema, usedTypes, allSchemas, new Set());
                   }
                 }
               }
               // OpenAPI v2 (Swagger 2.0) format: responses have schema property directly
-              else if (response.schema) {
-                this.collectTypesFromSchema(response.schema, usedTypes, allSchemas);
+              else if (successResponse.schema) {
+                this.collectTypesFromSchema(successResponse.schema, usedTypes, allSchemas, new Set());
               }
             }
           }
@@ -806,7 +807,7 @@ export class OpenAPIGenerator {
     return Array.from(usedTypes).sort();
   }
 
-  private collectTypesFromSchema(schema: any, usedTypes: Set<string>, allSchemas: Record<string, any> = {}): void {
+  private collectTypesFromSchema(schema: any, usedTypes: Set<string>, allSchemas: Record<string, any> = {}, visited: Set<string> = new Set()): void {
     if (!schema) return;
 
     // Handle $ref
@@ -816,10 +817,16 @@ export class OpenAPIGenerator {
         const typeName = this.toTypeName(refName);
         usedTypes.add(typeName);
         
+        // Prevent infinite recursion by tracking visited schemas
+        if (visited.has(schema.$ref)) {
+          return;
+        }
+        visited.add(schema.$ref);
+        
         // Resolve the referenced schema and continue traversal
         const referencedSchema = this.resolveSchemaReference(schema.$ref, allSchemas);
         if (referencedSchema) {
-          this.collectTypesFromSchema(referencedSchema, usedTypes, allSchemas);
+          this.collectTypesFromSchema(referencedSchema, usedTypes, allSchemas, visited);
         }
       }
       return;
@@ -829,26 +836,26 @@ export class OpenAPIGenerator {
     if (schema.anyOf || schema.oneOf || schema.allOf) {
       const schemas = schema.anyOf || schema.oneOf || schema.allOf;
       for (const subSchema of schemas) {
-        this.collectTypesFromSchema(subSchema, usedTypes, allSchemas);
+        this.collectTypesFromSchema(subSchema, usedTypes, allSchemas, visited);
       }
       return;
     }
 
     // Handle arrays
     if (schema.type === 'array' && schema.items) {
-      this.collectTypesFromSchema(schema.items, usedTypes, allSchemas);
+      this.collectTypesFromSchema(schema.items, usedTypes, allSchemas, visited);
     }
 
     // Handle objects with properties
     if (schema.properties) {
       for (const propSchema of Object.values(schema.properties)) {
-        this.collectTypesFromSchema(propSchema as any, usedTypes, allSchemas);
+        this.collectTypesFromSchema(propSchema as any, usedTypes, allSchemas, visited);
       }
     }
 
     // Handle additional properties
     if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
-      this.collectTypesFromSchema(schema.additionalProperties, usedTypes, allSchemas);
+      this.collectTypesFromSchema(schema.additionalProperties, usedTypes, allSchemas, visited);
     }
   }
 
@@ -1441,6 +1448,11 @@ ${operations.map(({ operationId }) => {
       if (jsdocParts.length > 0) jsdocParts.push('');
       jsdocParts.push(operation.description);
     }
+
+    // Add operationId
+    const operationId = operation.operationId || `${method}_${path}`;
+    if (jsdocParts.length > 0) jsdocParts.push('');
+    jsdocParts.push(`@operationId ${operationId}`);
 
     // Parameters documentation
     const paramDocs: string[] = [];

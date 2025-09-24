@@ -1,6 +1,6 @@
 import { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
 import axios from "axios";
-import type { AnalyticsReport, Category, CreateUserRequest, CreateWebhookRequest, DateRange, EmailNotification, Error, ExportData, FileInfo, HealthStatus, Pagination, PatchUserRequest, PushNotification, SMSNotification, SearchResults, UpdateUserRequest, User, Webhook } from "./types.js";
+import type { Address, AnalyticsReport, BaseNotification, Category, CreateUserRequest, CreateWebhookRequest, DateRange, EmailNotification, ExportData, Facet, FileInfo, HealthStatus, Pagination, PatchUserRequest, PushNotification, RetryConfig, SMSNotification, SearchResult, SearchResults, ServiceHealth, UpdateUserRequest, User, UserPreferences, Webhook } from "./types.js";
 
 /**
  * Comprehensive Test API
@@ -40,6 +40,8 @@ export class APIClient {
      *
      * Retrieve a paginated list of users
      *
+     * @operationId getUsers
+     *
      * @param params Parameters object containing query parameters
      * @param config Optional axios request configuration
      * @returns Promise with response data - Successful response
@@ -54,6 +56,8 @@ export class APIClient {
      *
      * Create a new user account
      *
+     * @operationId createUser
+     *
      * @param data Request body
      * @param config Optional axios request configuration
      * @returns Promise with response data - User created successfully
@@ -67,6 +71,8 @@ export class APIClient {
      *
      * Retrieve a specific user by their ID
      *
+     * @operationId getUserById
+     *
      * @param config Optional axios request configuration
      * @returns Promise with response data - User found
      */
@@ -78,6 +84,8 @@ export class APIClient {
      * Update user
      *
      * Update an existing user (full update)
+     *
+     * @operationId updateUser
      *
      * @param data Request body
      * @param config Optional axios request configuration
@@ -92,6 +100,8 @@ export class APIClient {
      *
      * Partially update an existing user
      *
+     * @operationId patchUser
+     *
      * @param data Request body
      * @param config Optional axios request configuration
      * @returns Promise with response data - User updated successfully
@@ -105,6 +115,8 @@ export class APIClient {
      *
      * Delete an existing user
      *
+     * @operationId deleteUser
+     *
      * @param config Optional axios request configuration
      * @returns Promise with response data - User deleted successfully
      */
@@ -116,6 +128,8 @@ export class APIClient {
      * Search content
      *
      * Search across multiple content types with complex filtering
+     *
+     * @operationId searchContent
      *
      * @param params Parameters object containing query parameters
      * @param config Optional axios request configuration
@@ -131,6 +145,8 @@ export class APIClient {
      *
      * Upload a single file
      *
+     * @operationId uploadFile
+     *
      * @param data Request body
      * @param config Optional axios request configuration
      * @returns Promise with response data - File uploaded successfully
@@ -144,6 +160,8 @@ export class APIClient {
      *
      * Upload multiple files in one request
      *
+     * @operationId uploadMultipleFiles
+     *
      * @param data Request body
      * @param config Optional axios request configuration
      * @returns Promise with response data - Files uploaded successfully
@@ -156,6 +174,8 @@ export class APIClient {
      * Export data
      *
      * Export data in various formats
+     *
+     * @operationId exportData
      *
      * @param params Parameters object containing query parameters
      * @param config Optional axios request configuration
@@ -171,6 +191,8 @@ export class APIClient {
      *
      * Get all configured webhooks
      *
+     * @operationId getWebhooks
+     *
      * @param config Optional axios request configuration
      * @returns Promise with response data - List of webhooks
      */
@@ -182,6 +204,8 @@ export class APIClient {
      * Create webhook
      *
      * Create a new webhook
+     *
+     * @operationId createWebhook
      *
      * @param data Request body
      * @param config Optional axios request configuration
@@ -196,6 +220,8 @@ export class APIClient {
      *
      * Test operationId with hyphens, underscores, and dots
      *
+     * @operationId get-special_chars.endpoint
+     *
      * @param config Optional axios request configuration
      * @returns Promise with response data - Success
      */
@@ -207,6 +233,8 @@ export class APIClient {
      * Numbers in operationId
      *
      * Test operationId with numbers mixed in
+     *
+     * @operationId get123Numbers456
      *
      * @param config Optional axios request configuration
      * @returns Promise with response data - Success
@@ -220,6 +248,8 @@ export class APIClient {
      *
      * Get user notifications of various types
      *
+     * @operationId getNotifications
+     *
      * @param config Optional axios request configuration
      * @returns Promise with response data - List of notifications
      */
@@ -232,6 +262,8 @@ export class APIClient {
      *
      * Get category tree with subcategories
      *
+     * @operationId getCategories
+     *
      * @param config Optional axios request configuration
      * @returns Promise with response data - Category tree
      */
@@ -243,6 +275,8 @@ export class APIClient {
      * Get analytics report
      *
      * Generate analytics report with complex filtering
+     *
+     * @operationId getAnalyticsReport
      *
      * @param params Parameters object containing query parameters
      * @param config Optional axios request configuration
@@ -261,6 +295,8 @@ export class APIClient {
      *
      * Check API health status
      *
+     * @operationId get_/health
+     *
      * @param config Optional axios request configuration
      * @returns Promise with response data - API is healthy
      */
@@ -276,6 +312,8 @@ export class APIClient {
      *
      * Test operationId containing forward slashes
      *
+     * @operationId api/v1/getResources
+     *
      * @param config Optional axios request configuration
      * @returns Promise with response data - Resources list
      */
@@ -290,6 +328,8 @@ export class APIClient {
      * Namespaced action
      *
      * Test deeply nested operationId with multiple slashes
+     *
+     * @operationId namespace/action/create
      *
      * @param config Optional axios request configuration
      * @returns Promise with response data - Action created

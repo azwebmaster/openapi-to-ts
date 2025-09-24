@@ -374,7 +374,8 @@ describe('OpenAPIGenerator', () => {
       const usedTypes = generator['collectUsedTypes']();
       expect(usedTypes).toContain('User');
       expect(usedTypes).toContain('Product');
-      expect(usedTypes).toContain('ErrorResponse');
+      // ErrorResponse should not be collected as it's only used in error responses
+      expect(usedTypes).not.toContain('ErrorResponse');
     });
 
     it('should collect types from both OpenAPI v2 and v3 response formats', () => {
@@ -969,11 +970,12 @@ describe('OpenAPIGenerator', () => {
         }
       } as any;
 
-      // Test that collectUsedTypes finds all response types
+      // Test that collectUsedTypes finds only success response types
       const usedTypes = generator['collectUsedTypes']();
       expect(usedTypes).toContain('User');
       expect(usedTypes).toContain('Product');
-      expect(usedTypes).toContain('ErrorResponse');
+      // ErrorResponse should not be collected as it's only used in error responses
+      expect(usedTypes).not.toContain('ErrorResponse');
 
       // Test response type generation
       const getUsersResponse = generator.getResponseType({

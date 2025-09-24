@@ -86,6 +86,19 @@ program
         process.exit(1);
       }
 
+      // Validate config structure
+      if (!config.apis || !Array.isArray(config.apis)) {
+        console.error(`❌ Error: Invalid configuration file format. Missing or invalid 'apis' array.`);
+        console.error('   Run "openapi-gen init <spec>" to create a new configuration file.');
+        process.exit(1);
+      }
+
+      if (config.apis.length === 0) {
+        console.error(`❌ Error: No APIs found in configuration file.`);
+        console.error('   Run "openapi-gen init <spec>" to create a new configuration file.');
+        process.exit(1);
+      }
+
       let apiConfig: APIConfig | null = null;
 
       if (options.api) {
@@ -190,6 +203,19 @@ program
         if (!config) {
           console.error(`❌ Error: Configuration file not found: ${configPath}`);
           console.error('   Run "openapi-gen init <spec>" to create a configuration file first.');
+          process.exit(1);
+        }
+
+        // Validate config structure
+        if (!config.apis || !Array.isArray(config.apis)) {
+          console.error(`❌ Error: Invalid configuration file format. Missing or invalid 'apis' array.`);
+          console.error('   Run "openapi-gen init <spec>" to create a new configuration file.');
+          process.exit(1);
+        }
+
+        if (config.apis.length === 0) {
+          console.error(`❌ Error: No APIs found in configuration file.`);
+          console.error('   Run "openapi-gen init <spec>" to create a new configuration file.');
           process.exit(1);
         }
 
@@ -457,12 +483,26 @@ program
       console.log(`📄 Title: ${api.info.title}`);
       console.log(`🔢 Version: ${api.info.version}`);
       console.log(`📝 Description: ${api.info.description || 'None'}`);
-      console.log(`🌐 OpenAPI Version: ${api.openapi}\n`);
+      
+      // Handle both OpenAPI v3 and v2 version detection
+      const openApiVersion = api.openapi || api.swagger;
+      const versionType = api.openapi ? 'OpenAPI' : 'Swagger';
+      console.log(`🌐 ${versionType} Version: ${openApiVersion}\n`);
 
+      // Handle servers (OpenAPI v3) vs host/basePath/schemes (OpenAPI v2)
       if (api.servers && api.servers.length > 0) {
         console.log('🖥️  Servers:');
         api.servers.forEach((server: any, index: number) => {
           console.log(`   ${index + 1}. ${server.url}${server.description ? ` - ${server.description}` : ''}`);
+        });
+        console.log('');
+      } else if (api.host || api.basePath || api.schemes) {
+        console.log('🖥️  Server:');
+        const schemes = api.schemes && api.schemes.length > 0 ? api.schemes : ['https'];
+        const host = api.host || 'localhost';
+        const basePath = api.basePath || '';
+        schemes.forEach((scheme: string) => {
+          console.log(`   ${scheme}://${host}${basePath}`);
         });
         console.log('');
       }
@@ -481,8 +521,10 @@ program
       }
       console.log('');
 
-      const schemas = Object.keys((api.components as any)?.schemas || {});
-      console.log(`🏗️  Schemas: ${schemas.length} components`);
+      // Handle schemas (OpenAPI v3) vs definitions (OpenAPI v2)
+      const schemas = Object.keys((api.components as any)?.schemas || api.definitions || {});
+      const schemaType = api.components?.schemas ? 'components' : 'definitions';
+      console.log(`🏗️  ${schemaType.charAt(0).toUpperCase() + schemaType.slice(1)}: ${schemas.length} schemas`);
       if (schemas.length > 0 && schemas.length <= 15) {
         console.log(`   ${schemas.join(', ')}`);
       } else if (schemas.length > 15) {
