@@ -722,24 +722,31 @@ export class OpenAPIGenerator {
           this.generateMethod(classDeclaration, path, method, operation);
         }
       } else {
-        const rootNamespace = namespace.split('/')[0];
+        // Determine separator used in this namespace
+        const separator = namespace.includes('/') ? '/' : '.';
+        const rootNamespace = namespace.split(separator)[0];
         rootNamespaces.add(rootNamespace);
       }
     }
 
     // Generate each root namespace with all its sub-operations
     for (const rootNamespace of rootNamespaces) {
-      const allRootOperations = allOperations.filter(op => 
-        op.operationId.startsWith(rootNamespace + '/')
-      );
+      const allRootOperations = allOperations.filter(op => {
+        // Check if operation starts with root namespace followed by either separator
+        return op.operationId.startsWith(rootNamespace + '/') || 
+               op.operationId.startsWith(rootNamespace + '.');
+      });
       
-      if (rootNamespace.includes('/')) {
+      // Determine the separator used for this root namespace
+      const separator = allRootOperations.some(op => op.operationId.includes('/')) ? '/' : '.';
+      
+      if (rootNamespace.includes(separator)) {
         // This should not happen since we're taking only the first part
         this.generateNestedNamespace(classDeclaration, rootNamespace, allRootOperations);
       } else {
         // Check if it has nested operations
         const hasNested = allRootOperations.some(op => 
-          op.operationId.split('/').length > 2
+          op.operationId.split(separator).length > 2
         );
         
         if (hasNested) {
@@ -922,13 +929,21 @@ export class OpenAPIGenerator {
             operationIdTracker.set(originalOperationId, 1);
           }
 
-          // Extract namespace from operationId by splitting on '/' and creating full namespace path
+          // Extract namespace from operationId by splitting on '/' or '.' and creating full namespace path
           let namespace = 'default';
+          let separator = '/';
           if (operationId.includes('/')) {
-            const parts = operationId.split('/');
+            separator = '/';
+          } else if (operationId.includes('.')) {
+            separator = '.';
+          }
+          
+          // Check if operationId contains the determined separator
+          if (operationId.includes(separator)) {
+            const parts = operationId.split(separator);
             // Take all parts except the last one as namespace (support nested namespaces)
             if (parts.length > 1) {
-              namespace = parts.slice(0, -1).join('/');
+              namespace = parts.slice(0, -1).join(separator);
             }
           }
 
@@ -1058,23 +1073,26 @@ ${operations.map(({ operationId }) => {
 
   private generateNestedNamespace(classDeclaration: any, namespacePath: string, operations: Array<{ path: string; method: string; operation: any; operationId: string }>): void {
     const file = classDeclaration.getSourceFile();
-    const namespaceParts = namespacePath.split('/');
+    
+    // Determine separator used in the namespace path
+    const separator = namespacePath.includes('/') ? '/' : '.';
+    const namespaceParts = namespacePath.split(separator);
 
     // Collect ALL operations that start with the root namespace, not just the exact path
     const rootNamespace = namespaceParts[0];
     const allRootOperations = operations.filter(op => 
-      op.operationId.startsWith(rootNamespace + '/')
+      op.operationId.startsWith(rootNamespace + separator)
     );
 
     // Build the nested namespace structure
-    this.buildNestedNamespaceStructure(classDeclaration, namespaceParts, allRootOperations);
+    this.buildNestedNamespaceStructure(classDeclaration, namespaceParts, allRootOperations, separator);
   }
 
-  private buildNestedNamespaceStructure(classDeclaration: any, namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>): void {
+  private buildNestedNamespaceStructure(classDeclaration: any, namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>, separator: string = '/'): void {
     const file = classDeclaration.getSourceFile();
     
     // Create interfaces for each level of nesting
-    this.createNestedInterfaces(file, namespaceParts, operations);
+    this.createNestedInterfaces(file, namespaceParts, operations, separator);
     
     // Add the root namespace property to the main class if it doesn't exist
     const rootNamespace = namespaceParts[0];
@@ -1095,9 +1113,9 @@ ${operations.map(({ operationId }) => {
       if (constructor) {
         // Collect all operations that start with this root namespace
         const allRootOperations = operations.filter(op => 
-          op.operationId.startsWith(rootNamespace + '/')
+          op.operationId.startsWith(rootNamespace + separator)
         );
-        const initStatement = this.buildNamespaceInitialization([rootNamespace], allRootOperations);
+        const initStatement = this.buildNamespaceInitialization([rootNamespace], allRootOperations, separator);
         constructor.addStatements([`this.${rootNamespace} = ${initStatement};`]);
       }
     }
@@ -1106,22 +1124,22 @@ ${operations.map(({ operationId }) => {
     for (const { path, method, operation, operationId } of operations) {
       const methodName = this.toMethodName(operationId);
       // Use the full operation namespace path, not just the initial namespaceParts
-      const fullNamespacePath = operationId.split('/').slice(0, -1); // All parts except method name
+      const fullNamespacePath = operationId.split(separator).slice(0, -1); // All parts except method name
       const privateMethodName = this.getPrivateMethodName(fullNamespacePath, methodName);
       this.generateMethod(classDeclaration, path, method, operation, privateMethodName);
     }
   }
 
-  private createNestedInterfaces(file: SourceFile, namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>): void {
+  private createNestedInterfaces(file: SourceFile, namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>, separator: string = '/'): void {
     // Find all unique namespace levels in the operations
     const allNamespaceLevels = new Set<string>();
     
     for (const operation of operations) {
-      const opParts = operation.operationId.split('/');
+      const opParts = operation.operationId.split(separator);
       if (opParts.length > 1) {
         // Add all namespace levels for this operation
         for (let i = 1; i < opParts.length; i++) {
-          const namespacePath = opParts.slice(0, i).join('/');
+          const namespacePath = opParts.slice(0, i).join(separator);
           allNamespaceLevels.add(namespacePath);
         }
       }
@@ -1132,7 +1150,7 @@ ${operations.map(({ operationId }) => {
 
     // Create interfaces for each namespace level
     for (const namespacePath of sortedLevels) {
-      const namespacePathParts = namespacePath.split('/');
+      const namespacePathParts = namespacePath.split(separator);
       const interfaceName = `${this.toTypeName(namespacePathParts.join('_'))}Operations`;
       
       // Check if interface already exists
@@ -1151,8 +1169,8 @@ ${operations.map(({ operationId }) => {
 
       // Find direct methods at this level (not in sub-namespaces)
       const directMethods = operations.filter(op => {
-        const opParts = op.operationId.split('/');
-        return opParts.slice(0, -1).join('/') === namespacePath;
+        const opParts = op.operationId.split(separator);
+        return opParts.slice(0, -1).join(separator) === namespacePath;
       });
 
       // Add method signatures for direct methods
@@ -1163,10 +1181,10 @@ ${operations.map(({ operationId }) => {
       // Find sub-namespaces at this level
       const subNamespaces = new Set<string>();
       for (const operation of operations) {
-        const opParts = operation.operationId.split('/');
+        const opParts = operation.operationId.split(separator);
         if (opParts.length > namespacePathParts.length + 1) {
           const nextLevelParts = opParts.slice(0, namespacePathParts.length + 1);
-          if (nextLevelParts.slice(0, namespacePathParts.length).join('/') === namespacePath) {
+          if (nextLevelParts.slice(0, namespacePathParts.length).join(separator) === namespacePath) {
             subNamespaces.add(nextLevelParts[namespacePathParts.length]);
           }
         }
@@ -1257,24 +1275,24 @@ ${operations.map(({ operationId }) => {
     });
   }
 
-  private buildNamespaceInitialization(namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>): string {
+  private buildNamespaceInitialization(namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>, separator: string = '/'): string {
     // Build a tree structure for the namespace
-    const tree = this.buildNamespaceTree(namespaceParts, operations);
+    const tree = this.buildNamespaceTree(namespaceParts, operations, separator);
     const content = this.generateNamespaceObjectFromTree(tree);
     return `{\n${content}\n    }`;
   }
 
-  private buildNamespaceTree(namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>): any {
+  private buildNamespaceTree(namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string }>, separator: string = '/'): any {
     const tree: any = {};
     
     // Process all operations that start with our root namespace
     const rootNamespace = namespaceParts[0];
     
     for (const operation of operations) {
-      const opParts = operation.operationId.split('/');
+      const opParts = operation.operationId.split(separator);
       
       // Only process operations that start with our root namespace
-      if (!operation.operationId.startsWith(rootNamespace + '/')) continue;
+      if (!operation.operationId.startsWith(rootNamespace + separator)) continue;
       
       // Navigate/create the tree structure starting from the root
       let current = tree;
@@ -1850,7 +1868,8 @@ ${operations.map(({ operationId }) => {
   public static async generateConfigFromSpec(
     spec: string, 
     outputDir: string = './generated',
-    configPath: string = '.ott.json'
+    configPath: string = '.ott.json',
+    headers?: Record<string, string>
   ): Promise<OTTConfig> {
     // Parse the OpenAPI spec to extract operationIds
     const SwaggerParser = (await import('@apidevtools/swagger-parser')).default;
@@ -1859,7 +1878,7 @@ ${operations.map(({ operationId }) => {
     // If spec is a URL, fetch it
     if (spec.startsWith('http://') || spec.startsWith('https://')) {
       const generator = new OpenAPIGenerator({ spec, outputDir: '' });
-      specInput = await generator.fetchFromUrl(spec);
+      specInput = await generator.fetchFromUrl(spec, headers);
     }
 
     const api = await SwaggerParser.parse(specInput as any) as any;
@@ -1887,6 +1906,7 @@ ${operations.map(({ operationId }) => {
           namespace: api.info?.title || 'API',
           axiosInstance: 'apiClient',
           typeOutput: 'single-file',
+          headers: Object.keys(headers || {}).length > 0 ? headers : undefined,
           operationIds: operationIds.sort()
         }
       ]

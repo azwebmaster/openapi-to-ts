@@ -13,10 +13,15 @@ const __dirname = path.dirname(__filename);
 const packageJsonPath = path.join(__dirname, '..', 'package.json');
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 
+// Helper function to detect URLs
+function isUrl(spec: string): boolean {
+  return spec.startsWith('http://') || spec.startsWith('https://');
+}
+
 const program = new Command();
 
 program
-  .name('openapi-gen')
+  .name('openapi-to-ts')
   .description('Generate TypeScript clients from OpenAPI specifications')
   .version(packageJson.version);
 
@@ -26,29 +31,50 @@ program
   .argument('<spec>', 'Path to OpenAPI specification file (YAML or JSON) or URL')
   .option('-o, --output <dir>', 'Output directory for generated files', './generated')
   .option('-c, --config <file>', 'Configuration file path', path.resolve(process.cwd(), '.ott.json'))
+  .option('-H, --header <header>', 'Add header for URL requests (format: "Name: Value")', [])
   .action(async (spec: string, options) => {
     try {
       console.log('🔧 Initializing OpenAPI TypeScript Generator Configuration');
       console.log('======================================================\n');
 
       // Check if spec is a URL or file path
-      const isUrl = spec.startsWith('http://') || spec.startsWith('https://');
+      const specIsUrl = isUrl(spec);
 
-      if (!isUrl) {
+      if (!specIsUrl) {
         if (!fs.existsSync(spec)) {
           console.error(`❌ Error: OpenAPI spec file not found: ${spec}`);
           process.exit(1);
         }
       }
 
+      // Parse headers
+      const headers: Record<string, string> = {};
+      const headerOptions = Array.isArray(options.header) ? options.header : (options.header ? [options.header] : []);
+      if (headerOptions.length > 0) {
+        for (const header of headerOptions) {
+          const colonIndex = header.indexOf(':');
+          if (colonIndex === -1) {
+            console.error(`❌ Error: Invalid header format "${header}". Use "Name: Value" format.`);
+            process.exit(1);
+          }
+          const name = header.substring(0, colonIndex).trim();
+          const value = header.substring(colonIndex + 1).trim();
+          headers[name] = value;
+        }
+      }
+
       console.log(`📄 Input spec: ${spec}`);
+      if (specIsUrl && Object.keys(headers).length > 0) {
+        console.log(`🔑 Headers: ${Object.keys(headers).join(', ')} (${Object.keys(headers).length} header(s))`);
+      }
       console.log(`📁 Output directory: ${path.resolve(options.output)}`);
       console.log(`⚙️  Config file: ${options.config}\n`);
 
       const config = await OpenAPIGenerator.generateConfigFromSpec(
         spec,
         options.output,
-        options.config
+        options.config,
+        headers
       );
 
       console.log('✅ Configuration file created successfully!');
@@ -326,9 +352,9 @@ program
           process.exit(1);
         }
 
-        const isUrl = spec.startsWith('http://') || spec.startsWith('https://');
+        const specIsUrl = isUrl(spec);
         
-        if (!isUrl) {
+        if (!specIsUrl) {
           // Validate input file exists
           if (!fs.existsSync(spec)) {
             console.error(`❌ Error: OpenAPI spec file not found: ${spec}`);
@@ -350,7 +376,7 @@ program
           'group-by-tag': TypeOutputMode.GroupByTag,
         };
 
-        finalSpec = isUrl ? spec : path.resolve(spec);
+        finalSpec = specIsUrl ? spec : path.resolve(spec);
         finalOutputDir = path.resolve(options.output);
         finalNamespace = options.namespace;
         finalAxiosInstance = options.axiosInstance;
@@ -359,7 +385,7 @@ program
         finalOperationIds = cliOperationIds.length > 0 ? cliOperationIds : undefined;
 
         console.log(`📄 Input spec: ${finalSpec}`);
-        if (isUrl && Object.keys(headers).length > 0) {
+        if (specIsUrl && Object.keys(headers).length > 0) {
           console.log(`🔑 Headers: ${Object.keys(headers).join(', ')} (${Object.keys(headers).length} header(s))`);
         }
         console.log(`📁 Output directory: ${finalOutputDir}`);
@@ -398,8 +424,9 @@ program
           }
           
           // Determine final configuration values for this API
+          const specIsUrl = isUrl(currentApiConfig.spec);
           const currentSpec = configPath ? 
-            (path.isAbsolute(currentApiConfig.spec) ? currentApiConfig.spec : path.resolve(path.dirname(configPath), currentApiConfig.spec)) :
+            (specIsUrl ? currentApiConfig.spec : (path.isAbsolute(currentApiConfig.spec) ? currentApiConfig.spec : path.resolve(path.dirname(configPath), currentApiConfig.spec))) :
             currentApiConfig.spec;
           const currentOutputDir = configPath ?
             (path.isAbsolute(currentApiConfig.output || './generated') ? 
@@ -456,7 +483,16 @@ program
         if (configPath) {
           // Using config file
           const configDir = path.dirname(configPath);
-          currentSpec = path.isAbsolute(currentApiConfig.spec) ? currentApiConfig.spec : path.resolve(configDir, currentApiConfig.spec);
+          
+          // Check if spec is a URL or file path
+          const specIsUrl = isUrl(currentApiConfig.spec);
+          
+          if (specIsUrl) {
+            currentSpec = currentApiConfig.spec;
+          } else {
+            currentSpec = path.isAbsolute(currentApiConfig.spec) ? currentApiConfig.spec : path.resolve(configDir, currentApiConfig.spec);
+          }
+          
           currentOutputDir = path.isAbsolute(currentApiConfig.output || './generated') 
             ? (currentApiConfig.output || './generated')
             : path.resolve(configDir, currentApiConfig.output || './generated');
@@ -590,16 +626,16 @@ program
   .action(async (spec: string, options) => {
     try {
       // Check if spec is a URL or file path
-      const isUrl = spec.startsWith('http://') || spec.startsWith('https://');
+      const specIsUrl = isUrl(spec);
 
-      if (!isUrl && !fs.existsSync(spec)) {
+      if (!specIsUrl && !fs.existsSync(spec)) {
         console.error(`❌ Error: OpenAPI spec file not found: ${spec}`);
         process.exit(1);
       }
 
       // Parse headers for URL requests
       const headers: Record<string, string> = {};
-      if (isUrl) {
+      if (specIsUrl) {
         const headerOptions = Array.isArray(options.header) ? options.header : (options.header ? [options.header] : []);
         if (headerOptions.length > 0) {
           for (const header of headerOptions) {
@@ -619,7 +655,7 @@ program
       const SwaggerParser = (await import('@apidevtools/swagger-parser')).default;
 
       let specInput: string | object = spec;
-      if (isUrl) {
+      if (specIsUrl) {
         // Use the same fetch logic as in generator
         const { OpenAPIGenerator } = await import('./generator.js');
         const generator = new OpenAPIGenerator({ spec, outputDir: '', headers });
@@ -708,6 +744,14 @@ program
     console.log('     -H "Authorization: Bearer your-token" \\');
     console.log('     -H "X-API-Key: your-api-key"\n');
 
+    console.log('⚙️  Initialize configuration:');
+    console.log('   openapi-gen init ./api.yaml\n');
+
+    console.log('🔐 Initialize from URL with authentication:');
+    console.log('   openapi-gen init https://api.example.com/openapi.json \\');
+    console.log('     -H "Authorization: Bearer your-token" \\');
+    console.log('     -H "X-API-Key: your-api-key"\n');
+
     console.log('🎯 Custom output directory:');
     console.log('   openapi-gen generate ./api.yaml -o ./src/api\n');
 
@@ -742,6 +786,8 @@ program
     console.log('   • Generates fully typed Axios clients');
     console.log('   • Supports anyOf, oneOf, allOf, discriminators');
     console.log('   • Handles nullable types and const values');
+    console.log('   • Use "init" command to create configuration files');
+    console.log('   • Headers are supported for both init and generate commands');
   });
 
 // Parse command line arguments

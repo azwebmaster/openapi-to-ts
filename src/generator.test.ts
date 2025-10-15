@@ -608,6 +608,163 @@ describe('OpenAPIGenerator', () => {
     });
   });
 
+  describe('namespace splitting with different separators', () => {
+    let generator: OpenAPIGenerator;
+
+    beforeEach(() => {
+      generator = new OpenAPIGenerator(mockOptions);
+    });
+
+    it('should handle namespaced operations with forward slash separator', () => {
+      // Mock API with forward slash namespaced operations
+      (generator as any).api = {
+        paths: {
+          '/admin/users': {
+            get: { operationId: 'admin/getUsers' },
+            post: { operationId: 'admin/createUser' }
+          },
+          '/admin/roles': {
+            get: { operationId: 'admin/roles/getAll' },
+            post: { operationId: 'admin/roles/create' }
+          },
+          '/public/info': {
+            get: { operationId: 'public/getInfo' }
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should group by namespace using forward slash
+      expect(result).toHaveProperty('admin');
+      expect(result).toHaveProperty('admin/roles');
+      expect(result).toHaveProperty('public');
+
+      expect(result.admin).toHaveLength(2);
+      expect(result['admin/roles']).toHaveLength(2);
+      expect(result.public).toHaveLength(1);
+    });
+
+    it('should handle namespaced operations with dot separator', () => {
+      // Mock API with dot namespaced operations
+      (generator as any).api = {
+        paths: {
+          '/admin/users': {
+            get: { operationId: 'admin.getUsers' },
+            post: { operationId: 'admin.createUser' }
+          },
+          '/admin/roles': {
+            get: { operationId: 'admin.roles.getAll' },
+            post: { operationId: 'admin.roles.create' }
+          },
+          '/public/info': {
+            get: { operationId: 'public.getInfo' }
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should group by namespace using dot
+      expect(result).toHaveProperty('admin');
+      expect('admin.roles' in result).toBe(true);
+      expect(result).toHaveProperty('public');
+
+      expect(result.admin).toHaveLength(2);
+      expect(result['admin.roles']).toHaveLength(2);
+      expect(result.public).toHaveLength(1);
+    });
+
+    it('should handle mixed separators by prioritizing forward slash', () => {
+      // Mock API with mixed separators (should prioritize forward slash)
+      (generator as any).api = {
+        paths: {
+          '/admin/users': {
+            get: { operationId: 'admin/getUsers' }, // Forward slash
+            post: { operationId: 'admin.createUser' } // Dot
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should use forward slash separator for this namespace
+      expect(result).toHaveProperty('admin');
+      expect(result.admin).toHaveLength(2);
+    });
+
+    it('should handle operations without namespace separators', () => {
+      // Mock API with operations without namespace separators
+      (generator as any).api = {
+        paths: {
+          '/users': {
+            get: { operationId: 'getUsers' },
+            post: { operationId: 'createUser' }
+          },
+          '/products': {
+            get: { operationId: 'getProducts' }
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should all be in default namespace
+      expect(result).toHaveProperty('default');
+      expect(result.default).toHaveLength(3);
+      expect(result).not.toHaveProperty('admin');
+      expect(result).not.toHaveProperty('public');
+    });
+
+    it('should handle nested namespaces with forward slash', () => {
+      // Mock API with deeply nested forward slash namespaces
+      (generator as any).api = {
+        paths: {
+          '/admin/users/roles': {
+            get: { operationId: 'admin/users/roles/getAll' },
+            post: { operationId: 'admin/users/roles/create' }
+          },
+          '/admin/users/permissions': {
+            get: { operationId: 'admin/users/permissions/getAll' }
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should create nested namespaces
+      expect('admin/users/roles' in result).toBe(true);
+      expect('admin/users/permissions' in result).toBe(true);
+
+      expect(result['admin/users/roles']).toHaveLength(2);
+      expect(result['admin/users/permissions']).toHaveLength(1);
+    });
+
+    it('should handle nested namespaces with dot separator', () => {
+      // Mock API with deeply nested dot namespaces
+      (generator as any).api = {
+        paths: {
+          '/admin/users/roles': {
+            get: { operationId: 'admin.users.roles.getAll' },
+            post: { operationId: 'admin.users.roles.create' }
+          },
+          '/admin/users/permissions': {
+            get: { operationId: 'admin.users.permissions.getAll' }
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should create nested namespaces
+      expect('admin.users.roles' in result).toBe(true);
+      expect('admin.users.permissions' in result).toBe(true);
+
+      expect(result['admin.users.roles']).toHaveLength(2);
+      expect(result['admin.users.permissions']).toHaveLength(1);
+    });
+  });
+
   describe('duplicate operationId handling', () => {
     let generator: OpenAPIGenerator;
 
@@ -2806,6 +2963,344 @@ describe('OpenAPIGenerator', () => {
           fs.rm(path.join(testOutputDir, `concurrent-${i}`), { recursive: true, force: true })
         )
       );
+    });
+
+    it('should handle parameter named "namespace" without adding Key suffix', () => {
+      // Create a test OpenAPI spec with a parameter named "namespace"
+      const testSpec = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/test': {
+            get: {
+              operationId: 'getTest',
+              summary: 'Test operation with namespace parameter',
+              parameters: [
+                {
+                  name: 'namespace',
+                  in: 'query',
+                  required: true,
+                  schema: { type: 'string' },
+                  description: 'The namespace parameter'
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'Success',
+                  content: {
+                    'application/json': {
+                      schema: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } as any;
+
+      // Set up the generator with the test spec
+      generator['api'] = testSpec;
+
+      // Test the parameter collection logic
+      const operation = generator['api'].paths['/test'].get;
+      const parameters = operation.parameters || [];
+      const allParams: any[] = [];
+
+      for (const param of parameters) {
+        const paramName = generator.toPropertyName(param.name);
+        const paramSchema = generator['getParameterSchema'](param);
+        const paramType = generator.getTypeString(paramSchema);
+
+        const paramInfo = {
+          name: paramName,
+          type: paramType,
+          required: param.required,
+          description: param.description,
+          in: param.in,
+        };
+
+        if (param.in !== 'body') {
+          allParams.push(paramInfo);
+        }
+      }
+
+      // Verify the parameter name is exactly "namespace" without any Key suffix
+      expect(allParams).toHaveLength(1);
+      expect(allParams[0].name).toBe('namespace');
+      expect(allParams[0].name).not.toBe('namespaceKey');
+      expect(allParams[0].name).not.toContain('Key');
+      expect(allParams[0].required).toBe(true);
+      expect(allParams[0].in).toBe('query');
+      expect(allParams[0].type).toBe('string');
+    });
+
+    it('should generate client code that uses params.namespace for namespace parameter', async () => {
+      const testOutputDir = path.join(__dirname, 'test-output-namespace-param');
+      
+      try {
+        // Create a test OpenAPI spec with a parameter named "namespace"
+        const testSpec = {
+          openapi: '3.0.0',
+          info: { title: 'Test API', version: '1.0.0' },
+          paths: {
+            '/test': {
+              get: {
+                operationId: 'getTest',
+                summary: 'Test operation with namespace parameter',
+                parameters: [
+                  {
+                    name: 'namespace',
+                    in: 'query',
+                    required: true,
+                    schema: { type: 'string' },
+                    description: 'The namespace parameter'
+                  }
+                ],
+                responses: {
+                  '200': {
+                    description: 'Success',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        };
+
+        // Mock SwaggerParser.parse to return our test spec
+        vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(testSpec as any);
+
+        // Generate the client
+        const generator = new OpenAPIGenerator({
+          spec: 'test-spec.yaml',
+          outputDir: testOutputDir,
+          namespace: 'TestAPI'
+        });
+
+        await generator.generate();
+
+        // Read the generated client file
+        const clientPath = path.join(testOutputDir, 'client.ts');
+        const clientContent = await fs.readFile(clientPath, 'utf-8');
+
+        // Verify the generated code uses params.namespace
+        expect(clientContent).toContain('params.namespace');
+        expect(clientContent).not.toContain('params.namespaceKey');
+        expect(clientContent).not.toContain('namespaceKey');
+        
+        // Verify the parameter interface includes namespace (required, not optional)
+        expect(clientContent).toContain('namespace: string');
+        expect(clientContent).not.toContain('namespaceKey: string');
+
+        // Verify the method signature includes the params parameter (required because namespace is required)
+        expect(clientContent).toContain('getTest(params: GetTestParams');
+
+      } finally {
+        // Restore mocks
+        vi.restoreAllMocks();
+        
+        // Clean up
+        await fs.rm(testOutputDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should generate client code that uses params.namespace for namespace parameter in OpenAPI v2', async () => {
+      const testOutputDir = path.join(__dirname, 'test-output-namespace-param-v2');
+      
+      try {
+        // Create a test OpenAPI v2 (Swagger 2.0) spec with a parameter named "namespace"
+        const testSpec = {
+          swagger: '2.0',
+          info: { title: 'Test API', version: '1.0.0' },
+          paths: {
+            '/test': {
+              get: {
+                operationId: 'getTest',
+                summary: 'Test operation with namespace parameter',
+                parameters: [
+                  {
+                    name: 'namespace',
+                    in: 'query',
+                    required: true,
+                    type: 'string',
+                    description: 'The namespace parameter'
+                  }
+                ],
+                responses: {
+                  '200': {
+                    description: 'Success',
+                    schema: { type: 'object' }
+                  }
+                }
+              }
+            }
+          }
+        };
+
+        // Mock SwaggerParser.parse to return our test spec
+        vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(testSpec as any);
+
+        // Generate the client
+        const generator = new OpenAPIGenerator({
+          spec: 'test-spec.json',
+          outputDir: testOutputDir,
+          namespace: 'TestAPI'
+        });
+
+        await generator.generate();
+
+        // Read the generated client file
+        const clientPath = path.join(testOutputDir, 'client.ts');
+        const clientContent = await fs.readFile(clientPath, 'utf-8');
+
+        // Verify the generated code uses params.namespace
+        expect(clientContent).toContain('params.namespace');
+        expect(clientContent).not.toContain('params.namespaceKey');
+        expect(clientContent).not.toContain('namespaceKey');
+        
+        // Verify the parameter interface includes namespace (required, not optional)
+        expect(clientContent).toContain('namespace: string');
+        expect(clientContent).not.toContain('namespaceKey: string');
+
+        // Verify the method signature includes the params parameter (required because namespace is required)
+        expect(clientContent).toContain('getTest(params: GetTestParams');
+
+        // Verify the axios call uses the parameter correctly
+        expect(clientContent).toContain('const queryParams = { namespace: params.namespace }');
+
+      } finally {
+        // Restore mocks
+        vi.restoreAllMocks();
+        
+        // Clean up
+        await fs.rm(testOutputDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('generateConfigFromSpec', () => {
+    const testOutputDir = path.join(__dirname, 'test-config-output');
+    const testConfigPath = path.join(testOutputDir, '.ott.json');
+
+    beforeEach(async () => {
+      await fs.mkdir(testOutputDir, { recursive: true });
+    });
+
+    afterEach(async () => {
+      await fs.rm(testOutputDir, { recursive: true, force: true });
+    });
+
+    it('should generate config from local spec file', async () => {
+      const testSpec = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/test': {
+            get: {
+              operationId: 'getTest',
+              responses: { '200': { description: 'Success' } }
+            }
+          }
+        }
+      };
+
+      const specPath = path.join(testOutputDir, 'test-spec.json');
+      await fs.writeFile(specPath, JSON.stringify(testSpec), 'utf-8');
+
+      const config = await OpenAPIGenerator.generateConfigFromSpec(
+        specPath,
+        './generated',
+        testConfigPath
+      );
+
+      expect(config).toBeDefined();
+      expect(config.apis).toHaveLength(1);
+      expect(config.apis[0].name).toBe('Test API');
+      expect(config.apis[0].operationIds).toEqual(['getTest']);
+      expect(config.apis[0].headers).toBeUndefined();
+
+      // Verify config file was created
+      const configContent = await fs.readFile(testConfigPath, 'utf-8');
+      const savedConfig = JSON.parse(configContent);
+      expect(savedConfig).toEqual(config);
+    });
+
+    it('should generate config with headers when provided', async () => {
+      const testSpec = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/test': {
+            get: {
+              operationId: 'getTest',
+              responses: { '200': { description: 'Success' } }
+            }
+          }
+        }
+      };
+
+      const specPath = path.join(testOutputDir, 'test-spec.json');
+      await fs.writeFile(specPath, JSON.stringify(testSpec), 'utf-8');
+
+      const headers = {
+        'Authorization': 'Bearer test-token',
+        'X-API-Key': 'test-key'
+      };
+
+      const config = await OpenAPIGenerator.generateConfigFromSpec(
+        specPath,
+        './generated',
+        testConfigPath,
+        headers
+      );
+
+      expect(config).toBeDefined();
+      expect(config.apis).toHaveLength(1);
+      expect(config.apis[0].headers).toEqual(headers);
+
+      // Verify config file was created with headers
+      const configContent = await fs.readFile(testConfigPath, 'utf-8');
+      const savedConfig = JSON.parse(configContent);
+      expect(savedConfig.apis[0].headers).toEqual(headers);
+    });
+
+    it('should not include headers in config when empty headers provided', async () => {
+      const testSpec = {
+        openapi: '3.0.0',
+        info: { title: 'Test API', version: '1.0.0' },
+        paths: {
+          '/test': {
+            get: {
+              operationId: 'getTest',
+              responses: { '200': { description: 'Success' } }
+            }
+          }
+        }
+      };
+
+      const specPath = path.join(testOutputDir, 'test-spec.json');
+      await fs.writeFile(specPath, JSON.stringify(testSpec), 'utf-8');
+
+      const config = await OpenAPIGenerator.generateConfigFromSpec(
+        specPath,
+        './generated',
+        testConfigPath,
+        {}
+      );
+
+      expect(config).toBeDefined();
+      expect(config.apis).toHaveLength(1);
+      expect(config.apis[0].headers).toBeUndefined();
+
+      // Verify config file was created without headers
+      const configContent = await fs.readFile(testConfigPath, 'utf-8');
+      const savedConfig = JSON.parse(configContent);
+      expect(savedConfig.apis[0].headers).toBeUndefined();
     });
   });
 });

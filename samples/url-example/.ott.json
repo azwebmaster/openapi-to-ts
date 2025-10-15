@@ -1,0 +1,12 @@
+{
+  "apis": [
+    {
+      "name": "petstore-api",
+      "spec": "https://petstore3.swagger.io/api/v3/openapi.json",
+      "output": "./generated",
+      "namespace": "PetStoreAPI",
+      "axiosInstance": "petStoreClient",
+      "typeOutput": "single-file"
+    }
+  ]
+}

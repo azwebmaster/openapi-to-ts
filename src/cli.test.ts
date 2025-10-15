@@ -72,6 +72,19 @@ describe('CLI', () => {
       expect(filePath.startsWith('http://') || filePath.startsWith('https://')).toBe(false);
       expect(absolutePath.startsWith('http://') || absolutePath.startsWith('https://')).toBe(false);
     });
+
+    it('should handle URL detection helper function', () => {
+      // This tests the isUrl helper function logic
+      const isUrl = (spec: string): boolean => {
+        return spec.startsWith('http://') || spec.startsWith('https://');
+      };
+
+      expect(isUrl('http://api.example.com/openapi.json')).toBe(true);
+      expect(isUrl('https://api.example.com/openapi.json')).toBe(true);
+      expect(isUrl('./api.yaml')).toBe(false);
+      expect(isUrl('/absolute/path/api.yaml')).toBe(false);
+      expect(isUrl('relative/path/api.yaml')).toBe(false);
+    });
   });
 
   describe('option handling', () => {
@@ -120,6 +133,54 @@ describe('CLI', () => {
       };
       const isValid = config.apis && Array.isArray(config.apis) && config.apis.length > 0;
       expect(isValid).toBe(true);
+    });
+
+    it('should handle URL specs in config file', () => {
+      const config = { 
+        apis: [{ 
+          name: 'Remote API', 
+          spec: 'https://api.example.com/openapi.json', 
+          output: './generated' 
+        }] 
+      };
+      
+      // Test URL detection for config specs
+      const isUrl = (spec: string): boolean => {
+        return spec.startsWith('http://') || spec.startsWith('https://');
+      };
+      
+      const apiConfig = config.apis[0];
+      const specIsUrl = isUrl(apiConfig.spec);
+      
+      expect(specIsUrl).toBe(true);
+      expect(apiConfig.spec).toBe('https://api.example.com/openapi.json');
+    });
+
+    it('should handle mixed file and URL specs in config', () => {
+      const config = { 
+        apis: [
+          { 
+            name: 'Local API', 
+            spec: './local-api.yaml', 
+            output: './generated' 
+          },
+          { 
+            name: 'Remote API', 
+            spec: 'https://api.example.com/openapi.json', 
+            output: './generated' 
+          }
+        ] 
+      };
+      
+      const isUrl = (spec: string): boolean => {
+        return spec.startsWith('http://') || spec.startsWith('https://');
+      };
+      
+      const localApi = config.apis[0];
+      const remoteApi = config.apis[1];
+      
+      expect(isUrl(localApi.spec)).toBe(false);
+      expect(isUrl(remoteApi.spec)).toBe(true);
     });
   });
 
