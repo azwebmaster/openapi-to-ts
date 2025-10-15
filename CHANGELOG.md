@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.14
+
+### Patch Changes
+
+- c102fc2: support `.` in operationIds
+
 ## 0.0.13
 
 ### Patch Changes
