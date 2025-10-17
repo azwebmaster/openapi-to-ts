@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.15
+
+### Patch Changes
+
+- ca08e05: fix method naming for namespaced operationIds with `.`
+
 ## 0.0.14
 
 ### Patch Changes
