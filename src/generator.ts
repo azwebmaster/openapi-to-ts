@@ -1699,13 +1699,22 @@ ${operations.map(({ operationId }) => {
 
   public toMethodName(operationId: string): string {
     // Handle namespace patterns: if operationId looks like clean namespace/method pattern,
-    // take everything after the first '/'. Otherwise, treat the whole thing as method name.
+    // take everything after the first separator. Otherwise, treat the whole thing as method name.
     let methodPart = operationId;
+    
+    // Check for both forward slash and dot separators
     if (operationId.includes('/')) {
       const parts = operationId.split('/');
       // If first part looks like a clean namespace (alphanumeric), use everything after first slash
       if (parts[0] && /^[a-zA-Z][a-zA-Z0-9]*$/.test(parts[0])) {
         methodPart = parts.slice(1).join('/');
+      }
+      // Otherwise treat the whole operationId as the method name
+    } else if (operationId.includes('.')) {
+      const parts = operationId.split('.');
+      // If first part looks like a clean namespace (alphanumeric), use everything after first dot
+      if (parts[0] && /^[a-zA-Z][a-zA-Z0-9]*$/.test(parts[0])) {
+        methodPart = parts.slice(1).join('.');
       }
       // Otherwise treat the whole operationId as the method name
     }

@@ -858,6 +858,555 @@ describe('OpenAPIGenerator', () => {
     });
   });
 
+  describe('dot-separated operationId namespacing', () => {
+    let generator: OpenAPIGenerator;
+
+    beforeEach(() => {
+      generator = new OpenAPIGenerator(mockOptions);
+    });
+
+    it('should handle basic dot-separated operationId namespacing', () => {
+      // Mock API with dot-separated namespaced operations
+      (generator as any).api = {
+        paths: {
+          '/admin/users': {
+            get: { operationId: 'admin.getUser' },
+            post: { operationId: 'admin.createUser' }
+          },
+          '/admin/roles': {
+            get: { operationId: 'admin.roles.getAll' },
+            post: { operationId: 'admin.roles.create' }
+          },
+          '/public/info': {
+            get: { operationId: 'public.getInfo' }
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should group by namespace using dot separator
+      expect(result).toHaveProperty('admin');
+      expect('admin.roles' in result).toBe(true);
+      expect(result).toHaveProperty('public');
+
+      expect(result.admin).toHaveLength(2);
+      expect(result['admin.roles']).toHaveLength(2);
+      expect(result.public).toHaveLength(1);
+    });
+
+    it('should handle deeply nested dot-separated operationId namespacing', () => {
+      // Mock API with deeply nested dot namespaces
+      (generator as any).api = {
+        paths: {
+          '/admin/users/roles': {
+            get: { operationId: 'admin.users.roles.getAll' },
+            post: { operationId: 'admin.users.roles.create' }
+          },
+          '/admin/users/permissions': {
+            get: { operationId: 'admin.users.permissions.getAll' }
+          },
+          '/admin/system/config': {
+            get: { operationId: 'admin.system.config.get' },
+            put: { operationId: 'admin.system.config.update' }
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should create nested namespaces
+      expect('admin.users.roles' in result).toBe(true);
+      expect('admin.users.permissions' in result).toBe(true);
+      expect('admin.system.config' in result).toBe(true);
+
+      expect(result['admin.users.roles']).toHaveLength(2);
+      expect(result['admin.users.permissions']).toHaveLength(1);
+      expect(result['admin.system.config']).toHaveLength(2);
+    });
+
+    it('should handle mixed separators in same API', () => {
+      // Mock API with mixed separator types
+      (generator as any).api = {
+        paths: {
+          '/admin/users': {
+            get: { operationId: 'admin.getUser' }, // Dot separator
+            post: { operationId: 'admin/createUser' } // Forward slash separator
+          },
+          '/admin/roles': {
+            get: { operationId: 'admin.roles.getAll' }, // Dot separator
+            post: { operationId: 'admin/roles/create' } // Forward slash separator
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should handle both separators appropriately
+      expect(result).toHaveProperty('admin');
+      expect('admin.roles' in result).toBe(true);
+      expect('admin/roles' in result).toBe(true);
+
+      expect(result.admin).toHaveLength(2);
+      expect(result['admin.roles']).toHaveLength(1);
+      expect(result['admin/roles']).toHaveLength(1);
+    });
+
+    it('should handle duplicate operationIds with dot separators', () => {
+      // Mock API with duplicate dot-separated operationIds
+      (generator as any).api = {
+        paths: {
+          '/admin/users': {
+            get: { operationId: 'admin.getUser' },
+            post: { operationId: 'admin.getUser' } // Duplicate
+          },
+          '/admin/roles': {
+            get: { operationId: 'admin.getUser' } // Another duplicate
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should all be in the 'admin' namespace
+      expect(result).toHaveProperty('admin');
+      expect(result.admin).toHaveLength(3);
+
+      const operationIds = result.admin.map((op: any) => op.operationId);
+      expect(operationIds).toContain('admin.getUser');
+      expect(operationIds).toContain('admin.getUser2');
+      expect(operationIds).toContain('admin.getUser3');
+    });
+
+    it('should extract method names correctly from dot-separated operationIds', () => {
+      // Test the toMethodName method with dot-separated operationIds
+      expect(generator.toMethodName('admin.getUser')).toBe('getUser');
+      expect(generator.toMethodName('admin.users.getAll')).toBe('usersGetAll');
+      expect(generator.toMethodName('admin.users.roles.create')).toBe('usersRolesCreate');
+      expect(generator.toMethodName('public.getInfo')).toBe('getInfo');
+      expect(generator.toMethodName('system.config.update')).toBe('configUpdate');
+    });
+
+    it('should handle users.getUser operationId correctly', () => {
+      // Test the specific case: users.getUser should create users namespace with getUser method
+      expect(generator.toMethodName('users.getUser')).toBe('getUser');
+      expect(generator.toMethodName('users.createUser')).toBe('createUser');
+      expect(generator.toMethodName('users.updateUser')).toBe('updateUser');
+      expect(generator.toMethodName('users.deleteUser')).toBe('deleteUser');
+    });
+
+    it('should create users namespace with getUser method from users.getUser operationId', () => {
+      // Mock API with users.getUser operationId
+      (generator as any).api = {
+        paths: {
+          '/users': {
+            get: { operationId: 'users.getUser' },
+            post: { operationId: 'users.createUser' },
+            put: { operationId: 'users.updateUser' },
+            delete: { operationId: 'users.deleteUser' }
+          }
+        }
+      };
+
+      const result = (generator as any).groupOperationsByNamespace();
+
+      // Should create a 'users' namespace
+      expect(result).toHaveProperty('users');
+      expect(result.users).toHaveLength(4);
+
+      // Verify all operations are in the users namespace
+      const operationIds = result.users.map((op: any) => op.operationId);
+      expect(operationIds).toContain('users.getUser');
+      expect(operationIds).toContain('users.createUser');
+      expect(operationIds).toContain('users.updateUser');
+      expect(operationIds).toContain('users.deleteUser');
+    });
+
+    it('should handle operationIds with dots but no clean namespace pattern', () => {
+      // Test operationIds that contain dots but don't follow clean namespace.method pattern
+      // These should be treated as single method names since they don't start with a clean namespace
+      expect(generator.toMethodName('get.user.by.id')).toBe('userById');
+      expect(generator.toMethodName('create.user.profile')).toBe('userProfile');
+      expect(generator.toMethodName('update.user.settings')).toBe('userSettings');
+    });
+
+    it('should generate proper namespace structure for dot-separated operationIds', async () => {
+      const testOutputDir = path.join(__dirname, 'test-output-dot-namespace');
+      
+      try {
+        // Create a test OpenAPI spec with dot-separated operationIds
+        const testSpec = {
+          openapi: '3.0.0',
+          info: { title: 'Test API', version: '1.0.0' },
+          paths: {
+            '/admin/users': {
+              get: {
+                operationId: 'admin.getUser',
+                summary: 'Get user from admin namespace',
+                responses: {
+                  '200': {
+                    description: 'User found',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              },
+              post: {
+                operationId: 'admin.createUser',
+                summary: 'Create user in admin namespace',
+                responses: {
+                  '201': {
+                    description: 'User created',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            '/admin/roles': {
+              get: {
+                operationId: 'admin.roles.getAll',
+                summary: 'Get all roles from admin.roles namespace',
+                responses: {
+                  '200': {
+                    description: 'Roles found',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            '/public/info': {
+              get: {
+                operationId: 'public.getInfo',
+                summary: 'Get public info',
+                responses: {
+                  '200': {
+                    description: 'Info found',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        };
+
+        // Write test spec to file
+        const specPath = path.join(testOutputDir, 'test-spec.yaml');
+        await fs.mkdir(testOutputDir, { recursive: true });
+        await fs.writeFile(specPath, JSON.stringify(testSpec, null, 2));
+
+        const generator = new OpenAPIGenerator({
+          spec: specPath,
+          outputDir: testOutputDir,
+          namespace: 'TestAPI'
+        });
+
+        await generator.generate();
+
+        // Read generated client file
+        const clientPath = path.join(testOutputDir, 'client.ts');
+        const clientContent = await fs.readFile(clientPath, 'utf-8');
+
+        // Verify namespace structure is generated correctly
+        expect(clientContent).toContain('admin: AdminOperations');
+        expect(clientContent).toContain('public: PublicOperations');
+        
+        // Verify interface definitions
+        expect(clientContent).toContain('interface AdminOperations');
+        expect(clientContent).toContain('interface PublicOperations');
+        
+        // Verify method signatures in interfaces
+        expect(clientContent).toContain('getUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(clientContent).toContain('createUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(clientContent).toContain('getInfo(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+
+        // Verify nested namespace for admin.roles
+        expect(clientContent).toContain('roles: AdminRolesOperations');
+        expect(clientContent).toContain('interface AdminRolesOperations');
+        expect(clientContent).toContain('rolesGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+
+      } finally {
+        // Clean up test directory
+        try {
+          await fs.rm(testOutputDir, { recursive: true, force: true });
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      }
+    });
+
+    it('should handle complex nested dot-separated operationIds', async () => {
+      const testOutputDir = path.join(__dirname, 'test-output-complex-dot-namespace');
+      
+      try {
+        // Create a test OpenAPI spec with complex nested dot-separated operationIds
+        const testSpec = {
+          openapi: '3.0.0',
+          info: { title: 'Test API', version: '1.0.0' },
+          paths: {
+            '/admin/users/roles': {
+              get: {
+                operationId: 'admin.users.roles.getAll',
+                summary: 'Get all user roles',
+                responses: {
+                  '200': {
+                    description: 'Roles found',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              },
+              post: {
+                operationId: 'admin.users.roles.create',
+                summary: 'Create user role',
+                responses: {
+                  '201': {
+                    description: 'Role created',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            '/admin/users/permissions': {
+              get: {
+                operationId: 'admin.users.permissions.getAll',
+                summary: 'Get all user permissions',
+                responses: {
+                  '200': {
+                    description: 'Permissions found',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            '/admin/system/config': {
+              get: {
+                operationId: 'admin.system.config.get',
+                summary: 'Get system config',
+                responses: {
+                  '200': {
+                    description: 'Config found',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              },
+              put: {
+                operationId: 'admin.system.config.update',
+                summary: 'Update system config',
+                responses: {
+                  '200': {
+                    description: 'Config updated',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        };
+
+        // Write test spec to file
+        const specPath = path.join(testOutputDir, 'test-spec.yaml');
+        await fs.mkdir(testOutputDir, { recursive: true });
+        await fs.writeFile(specPath, JSON.stringify(testSpec, null, 2));
+
+        const generator = new OpenAPIGenerator({
+          spec: specPath,
+          outputDir: testOutputDir,
+          namespace: 'TestAPI'
+        });
+
+        await generator.generate();
+
+        // Read generated client file
+        const clientPath = path.join(testOutputDir, 'client.ts');
+        const clientContent = await fs.readFile(clientPath, 'utf-8');
+
+        // Verify complex nested namespace structure
+        expect(clientContent).toContain('admin: AdminOperations');
+        expect(clientContent).toContain('interface AdminOperations');
+        
+        // Verify nested interfaces
+        expect(clientContent).toContain('users: AdminUsersOperations');
+        expect(clientContent).toContain('interface AdminUsersOperations');
+        expect(clientContent).toContain('system: AdminSystemOperations');
+        expect(clientContent).toContain('interface AdminSystemOperations');
+        
+        // Verify deeply nested interfaces
+        expect(clientContent).toContain('roles: AdminUsersRolesOperations');
+        expect(clientContent).toContain('interface AdminUsersRolesOperations');
+        expect(clientContent).toContain('permissions: AdminUsersPermissionsOperations');
+        expect(clientContent).toContain('interface AdminUsersPermissionsOperations');
+        expect(clientContent).toContain('config: AdminSystemConfigOperations');
+        expect(clientContent).toContain('interface AdminSystemConfigOperations');
+
+        // Verify method signatures in the deepest nested interfaces
+        expect(clientContent).toContain('usersRolesGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(clientContent).toContain('usersRolesCreate(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(clientContent).toContain('usersPermissionsGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(clientContent).toContain('systemConfigGet(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(clientContent).toContain('systemConfigUpdate(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+
+      } finally {
+        // Clean up test directory
+        try {
+          await fs.rm(testOutputDir, { recursive: true, force: true });
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      }
+    });
+
+    it('should generate proper client code for users.getUser operationId', async () => {
+      const testOutputDir = path.join(__dirname, 'test-output-users-namespace');
+      
+      try {
+        // Create a test OpenAPI spec with users.getUser operationId
+        const testSpec = {
+          openapi: '3.0.0',
+          info: { title: 'Test API', version: '1.0.0' },
+          paths: {
+            '/users': {
+              get: {
+                operationId: 'users.getUser',
+                summary: 'Get user from users namespace',
+                responses: {
+                  '200': {
+                    description: 'User found',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              },
+              post: {
+                operationId: 'users.createUser',
+                summary: 'Create user in users namespace',
+                responses: {
+                  '201': {
+                    description: 'User created',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              },
+              put: {
+                operationId: 'users.updateUser',
+                summary: 'Update user in users namespace',
+                responses: {
+                  '200': {
+                    description: 'User updated',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              },
+              delete: {
+                operationId: 'users.deleteUser',
+                summary: 'Delete user from users namespace',
+                responses: {
+                  '204': {
+                    description: 'User deleted'
+                  }
+                }
+              }
+            }
+          }
+        };
+
+        // Write test spec to file
+        const specPath = path.join(testOutputDir, 'test-spec.yaml');
+        await fs.mkdir(testOutputDir, { recursive: true });
+        await fs.writeFile(specPath, JSON.stringify(testSpec, null, 2));
+
+        const generator = new OpenAPIGenerator({
+          spec: specPath,
+          outputDir: testOutputDir,
+          namespace: 'TestAPI'
+        });
+
+        await generator.generate();
+
+        // Read generated client file
+        const clientPath = path.join(testOutputDir, 'client.ts');
+        const clientContent = await fs.readFile(clientPath, 'utf-8');
+
+        // Verify namespace structure is generated correctly
+        expect(clientContent).toContain('users: UsersOperations');
+        
+        // Verify interface definition
+        expect(clientContent).toContain('interface UsersOperations');
+        
+        // Verify method signatures in the users interface
+        expect(clientContent).toContain('getUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(clientContent).toContain('createUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(clientContent).toContain('updateUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(clientContent).toContain('deleteUser(config?: AxiosRequestConfig): Promise<AxiosResponse<void>>;');
+
+        // Verify the namespace is properly initialized in constructor
+        expect(clientContent).toContain('this.users = {');
+        expect(clientContent).toContain('getUser: this.users_getUser.bind(this),');
+        expect(clientContent).toContain('createUser: this.users_createUser.bind(this),');
+        expect(clientContent).toContain('updateUser: this.users_updateUser.bind(this),');
+        expect(clientContent).toContain('deleteUser: this.users_deleteUser.bind(this)');
+
+        // Verify private method implementations exist
+        expect(clientContent).toContain('private async users_getUser(');
+        expect(clientContent).toContain('private async users_createUser(');
+        expect(clientContent).toContain('private async users_updateUser(');
+        expect(clientContent).toContain('private async users_deleteUser(');
+
+      } finally {
+        // Clean up test directory
+        try {
+          await fs.rm(testOutputDir, { recursive: true, force: true });
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      }
+    });
+  });
+
   describe('OpenAPI v2 parameter handling', () => {
     let generator: OpenAPIGenerator;
 
