@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.17
+
+### Patch Changes
+
+- 4c4d958: change from interface to types
+
 ## 0.0.16
 
 ### Patch Changes
