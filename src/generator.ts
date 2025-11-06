@@ -493,7 +493,7 @@ export class OpenAPIGenerator {
       schemas.forEach((s: any, index: number) => {
         if (!s.$ref && (s.type === 'object' || s.properties)) {
           const nestedTypeName = `${parentTypeName}${this.naming.toTypeName(schema.anyOf ? 'AnyOf' : schema.oneOf ? 'OneOf' : 'AllOf')}${index}`;
-          if (!file.getInterface(nestedTypeName) && !file.getTypeAlias(nestedTypeName)) {
+          if (!file.getTypeAlias(nestedTypeName)) {
             this.generateTypeFromSchema(file, nestedTypeName, s);
             this.extractAndGenerateNestedInlineTypes(file, nestedTypeName, s, visited);
           }
@@ -509,7 +509,7 @@ export class OpenAPIGenerator {
       const itemSchema = schema.items;
       if (!itemSchema.$ref && (itemSchema.type === 'object' || itemSchema.properties)) {
         const nestedTypeName = `${parentTypeName}Item`;
-        if (!file.getInterface(nestedTypeName) && !file.getTypeAlias(nestedTypeName)) {
+        if (!file.getTypeAlias(nestedTypeName)) {
           this.generateTypeFromSchema(file, nestedTypeName, itemSchema);
           this.extractAndGenerateNestedInlineTypes(file, nestedTypeName, itemSchema, visited);
         }
@@ -532,7 +532,7 @@ export class OpenAPIGenerator {
         // Generate named type for inline object schemas
         if (prop.type === 'object' || prop.properties) {
           const nestedTypeName = `${parentTypeName}${this.naming.toTypeName(propName)}`;
-          if (!file.getInterface(nestedTypeName) && !file.getTypeAlias(nestedTypeName)) {
+          if (!file.getTypeAlias(nestedTypeName)) {
             this.generateTypeFromSchema(file, nestedTypeName, prop);
             // Recursively extract nested schemas
             this.extractAndGenerateNestedInlineTypes(file, nestedTypeName, prop, visited);
@@ -541,7 +541,7 @@ export class OpenAPIGenerator {
           const itemSchema = prop.items;
           if (!itemSchema.$ref && (itemSchema.type === 'object' || itemSchema.properties)) {
             const nestedTypeName = `${parentTypeName}${this.naming.toTypeName(propName)}Item`;
-            if (!file.getInterface(nestedTypeName) && !file.getTypeAlias(nestedTypeName)) {
+            if (!file.getTypeAlias(nestedTypeName)) {
               this.generateTypeFromSchema(file, nestedTypeName, itemSchema);
               this.extractAndGenerateNestedInlineTypes(file, nestedTypeName, itemSchema, visited);
             }
@@ -559,7 +559,7 @@ export class OpenAPIGenerator {
     if (schema.additionalProperties && typeof schema.additionalProperties === 'object' && !schema.additionalProperties.$ref) {
       if (schema.additionalProperties.type === 'object' || schema.additionalProperties.properties) {
         const nestedTypeName = `${parentTypeName}AdditionalProperty`;
-        if (!file.getInterface(nestedTypeName) && !file.getTypeAlias(nestedTypeName)) {
+        if (!file.getTypeAlias(nestedTypeName)) {
           this.generateTypeFromSchema(file, nestedTypeName, schema.additionalProperties);
           this.extractAndGenerateNestedInlineTypes(file, nestedTypeName, schema.additionalProperties, visited);
         }
@@ -644,16 +644,18 @@ export class OpenAPIGenerator {
       const docComment = this.jsdoc.generateJSDocComment(prop, propName);
       
       if (docComment) {
-        // Format with JSDoc comment (no trailing space, as per user example)
-        props.push(`    /** ${docComment} */`);
+        // Format with JSDoc comment (no indentation - ts-morph will add it)
+        props.push(`/** ${docComment} */`);
       }
       
-      // Format property without semicolon at the end (to match user example format)
-      props.push(`    ${this.naming.toPropertyName(propName)}${optional ? '?' : ''}: ${propType};`);
+      // Format property (no indentation - ts-morph will add it)
+      props.push(`${this.naming.toPropertyName(propName)}${optional ? '?' : ''}: ${propType};`);
     }
 
     visited.delete(schema);
-    return `{\n${props.join('\n')}\n    }`;
+    // Format properties with 2 spaces indentation
+    const formattedProps = props.map(prop => `  ${prop}`);
+    return `{\n${formattedProps.join('\n')}\n}`;
   }
 
   /**
@@ -666,92 +668,157 @@ export class OpenAPIGenerator {
     // Handle composition schemas first
     if (schema.anyOf || schema.oneOf || schema.allOf) {
       const typeString = this.getTypeString(schema);
-      const docComment = this.jsdoc.generateJSDocComment(schema, name) || `${name} type`;
+      // For types, use description directly from schema
+      const docComment = schema.description 
+        ? this.jsdoc.escapeBackticks(schema.description)
+        : undefined;
 
-      file.addTypeAlias({
+      const typeAlias = file.addTypeAlias({
         name: this.naming.toTypeName(name),
         type: typeString,
         isExported: true,
-        docs: [{ description: docComment }],
       });
+      
+      // Add JSDoc comment if description exists
+      if (docComment) {
+        typeAlias.addJsDoc({
+          description: docComment,
+        });
+      }
       return;
     }
 
     // Handle discriminated unions
     if (schema.discriminator) {
       const typeString = this.getTypeString(schema);
-      const docComment = this.jsdoc.generateJSDocComment(schema, name) || `${name} discriminated union`;
+      // For types, use description directly from schema
+      const docComment = schema.description 
+        ? this.jsdoc.escapeBackticks(schema.description)
+        : undefined;
 
-      file.addTypeAlias({
+      const typeAlias = file.addTypeAlias({
         name: this.naming.toTypeName(name),
         type: typeString,
         isExported: true,
-        docs: [{ description: docComment }],
       });
+      
+      // Add JSDoc comment if description exists
+      if (docComment) {
+        typeAlias.addJsDoc({
+          description: docComment,
+        });
+      }
       return;
     }
 
     if (schema.type === 'object' || schema.properties) {
-      const interfaceDeclaration = file.addInterface({
-        name: this.naming.toTypeName(name),
-        isExported: true,
-      });
+      const typeName = this.naming.toTypeName(name);
+      // For types, use description directly from schema, don't add "property" suffix
+      const docComment = schema.description 
+        ? this.jsdoc.escapeBackticks(schema.description)
+        : undefined;
 
-      const interfaceDocComment = this.jsdoc.generateJSDocComment(schema, name) || `${name} interface`;
-      interfaceDeclaration.addJsDoc({
-        description: interfaceDocComment,
-      });
+      // Build object type literal with JSDoc comments on properties
+      const properties = schema.properties || {};
+      const required = schema.required || [];
+      const requiredSet = new Set(required);
 
-      // Handle allOf inheritance
+      const propStrings: string[] = [];
+      for (const [propName, propSchema] of Object.entries(properties)) {
+        const prop = propSchema as any;
+        const propType = this.getTypeStringWithNestedJSDoc(prop);
+        const propNameFormatted = this.naming.toPropertyName(propName);
+        const optional = !requiredSet.has(propName);
+        
+        // Get JSDoc comment for this property
+        const propDocComment = this.jsdoc.generateJSDocComment(prop, propName);
+        
+        if (propDocComment) {
+          // Format with JSDoc comment above the property (no indentation - ts-morph will add it)
+          propStrings.push(`/** ${propDocComment} */`);
+        }
+        
+        // Add property with proper formatting (no indentation - ts-morph will add it)
+        propStrings.push(`${propNameFormatted}${optional ? '?' : ''}: ${propType};`);
+      }
+
+      // Build type string with proper 2-space indentation
+      // Format properties with 2 spaces indentation
+      const formattedProps = propStrings.map(prop => `  ${prop}`);
+      let typeString = `{\n${formattedProps.join('\n')}\n}`;
+
+      // Handle allOf inheritance (intersection types)
       if (schema.allOf) {
         const inheritanceTypes = schema.allOf
           .filter((s: any) => s.$ref)
           .map((s: any) => this.getTypeString(s));
 
         if (inheritanceTypes.length > 0) {
-          (interfaceDeclaration as any).setExtends(inheritanceTypes);
+          typeString = `(${inheritanceTypes.join(' & ')} & ${typeString})`;
         }
       }
 
-      const properties = schema.properties || {};
-      const required = schema.required || [];
-      // Convert to Set for O(1) lookups instead of O(n) Array.includes()
-      const requiredSet = new Set(required);
-
-      for (const [propName, propSchema] of Object.entries(properties)) {
-        const prop = propSchema as any;
-        
-        // Build comprehensive JSDoc comment including all nested property descriptions
-        const docComment = this.jsdoc.buildComprehensivePropertyJSDoc(prop, propName);
-
-        // Generate type string - for nested objects, create inline type with JSDoc comments
-        const propType = this.getTypeStringWithNestedJSDoc(prop);
-
-        interfaceDeclaration.addProperty({
-          name: this.naming.toPropertyName(propName),
-          type: propType,
-          hasQuestionToken: !requiredSet.has(propName),
-          docs: [{ description: docComment }],
+      // Add type alias - ts-morph will add base indentation
+      const typeAlias = file.addTypeAlias({
+        name: typeName,
+        type: typeString,
+        isExported: true,
+      });
+      
+      // Add JSDoc comment if description exists
+      if (docComment) {
+        typeAlias.addJsDoc({
+          description: docComment,
         });
       }
+      
+      // Fix indentation: ts-morph adds 4 spaces, we want 2 spaces total
+      // So we need to remove 2 spaces from each line
+      const currentType = typeAlias.getTypeNode();
+      if (currentType) {
+        const currentText = currentType.getText();
+        // Replace 6 spaces with 2 spaces, 4 spaces with 0 spaces (for closing brace)
+        const fixedText = currentText
+          .replace(/^      /gm, '  ')  // 6 spaces -> 2 spaces
+          .replace(/^    }/gm, '}');   // 4 spaces before closing brace -> 0 spaces
+        currentType.replaceWithText(fixedText);
+      }
     } else if (schema.enum) {
-      const docComment = this.jsdoc.generateJSDocComment(schema, name) || `${name} enum values`;
+      // For types, use description directly from schema
+      const docComment = schema.description 
+        ? this.jsdoc.escapeBackticks(schema.description)
+        : undefined;
 
-      file.addTypeAlias({
+      const typeAlias = file.addTypeAlias({
         name: this.naming.toTypeName(name),
         type: schema.enum.map((v: any) => JSON.stringify(v)).join(' | '),
         isExported: true,
-        docs: [{ description: docComment }],
       });
+      
+      // Add JSDoc comment if description exists
+      if (docComment) {
+        typeAlias.addJsDoc({
+          description: docComment,
+        });
+      }
     } else {
-      const docComment = this.jsdoc.generateJSDocComment(schema, name) || `${name} type`;
+      // For types, use description directly from schema
+      const docComment = schema.description 
+        ? this.jsdoc.escapeBackticks(schema.description)
+        : undefined;
 
-      file.addTypeAlias({
+      const typeAlias = file.addTypeAlias({
         name: this.naming.toTypeName(name),
         type: this.getTypeString(schema),
         isExported: true,
-        docs: [{ description: docComment }],
       });
+      
+      // Add JSDoc comment if description exists
+      if (docComment) {
+        typeAlias.addJsDoc({
+          description: docComment,
+        });
+      }
     }
   }
 
@@ -971,7 +1038,7 @@ export class OpenAPIGenerator {
     file.addImportDeclaration({
       moduleSpecifier: 'axios',
       namedImports: ['AxiosInstance', 'AxiosRequestConfig', 'AxiosResponse'],
-      isTypeOnly: false,
+      isTypeOnly: true,
     });
 
     file.addImportDeclaration({
@@ -1127,7 +1194,7 @@ export class OpenAPIGenerator {
     mainFile.addImportDeclaration({
       moduleSpecifier: 'axios',
       namedImports: ['AxiosInstance', 'AxiosRequestConfig'],
-      isTypeOnly: false,
+      isTypeOnly: true,
     });
 
     mainFile.addImportDeclaration({
@@ -1284,30 +1351,16 @@ export class OpenAPIGenerator {
       namespaceFile.addImportDeclaration({
         moduleSpecifier: 'axios',
         namedImports: ['AxiosInstance', 'AxiosRequestConfig', 'AxiosResponse'],
-        isTypeOnly: false,
+        isTypeOnly: true,
       });
 
       // Optimization #1: Collect only types used by this specific namespace
-      const namespaceUsedTypes = this.collectUsedTypesForNamespace(operations);
-      if (namespaceUsedTypes.length > 0) {
-        namespaceFile.addImportDeclaration({
-          moduleSpecifier: '../types.js',
-          namedImports: namespaceUsedTypes,
-          isTypeOnly: true,
-        });
-      }
-
-      // Create namespace interface
+      // First collect types from schemas
+      let namespaceUsedTypes = this.collectUsedTypesForNamespace(operations);
+      
+      // Create namespace type alias
       const namespaceInterfaceName = `${this.naming.toTypeName(rootNamespace)}Operations`;
-      const namespaceInterface = namespaceFile.addInterface({
-        name: namespaceInterfaceName,
-        isExported: true,
-      });
-
-      namespaceInterface.addJsDoc({
-        description: `${rootNamespace} namespace operations`,
-      });
-
+      
       // Create namespace implementation class
       const namespaceClassName = `${this.naming.toTypeName(rootNamespace)}Namespace`;
       const namespaceClass = namespaceFile.addClass({
@@ -1338,20 +1391,82 @@ export class OpenAPIGenerator {
         return parts.length > 2;
       });
 
+      // Build namespace type with methods and properties
+      const methodSignatures: string[] = [];
+      const properties: string[] = [];
+
       if (hasNested) {
         // Handle nested namespaces
-        this.generateNestedNamespaceForSplit(namespaceClass, namespaceInterface, rootNamespace, operations, separator, namespaceFile);
+        const { methods, props } = this.buildNestedNamespaceTypeForSplit(namespaceClass, rootNamespace, operations, separator, namespaceFile);
+        methodSignatures.push(...methods);
+        properties.push(...props);
       } else {
         // Generate simple namespace with direct methods
         for (const op of operations) {
           const { path, method, operation, operationId, metadata } = op as any;
-          // Add method signature to interface
-          this.addMethodSignatureToInterface(namespaceInterface, path, method, operation, operationId);
+          // Build method signature string
+          const methodSig = this.buildMethodSignatureString(namespaceFile, path, method, operation, operationId);
+          methodSignatures.push(methodSig);
           
-      // Generate implementation method - must be public to match interface
-      this.generateMethod(namespaceClass, path, method, operation, undefined, true, metadata);
+          // Generate implementation method - must be public to match type
+          this.generateMethod(namespaceClass, path, method, operation, undefined, true, metadata);
         }
       }
+      
+      // After generating method signatures, extract types from them
+      // This catches types that are referenced in method signatures but not in schemas
+      const usedTypesSet = new Set(namespaceUsedTypes);
+      
+      // Collect parameter type names that are generated inline (not imported)
+      const inlineParamTypes = new Set<string>();
+      for (const op of operations) {
+        const { operation, operationId } = op as any;
+        const methodName = this.naming.toMethodName(operationId);
+        const parameters = operation.parameters || [];
+        if (parameters.length > 0) {
+          inlineParamTypes.add(`${this.naming.toTypeName(methodName)}Params`);
+        }
+        if (operation.requestBody) {
+          inlineParamTypes.add(`${this.naming.toTypeName(methodName)}Data`);
+        }
+      }
+      
+      for (const methodSig of methodSignatures) {
+        this.extractTypeNamesFromTypeString(methodSig, usedTypesSet);
+      }
+      for (const prop of properties) {
+        this.extractTypeNamesFromTypeString(prop, usedTypesSet);
+      }
+      
+      // Remove inline parameter types and built-in types from the set
+      // These are generated in the namespace file, not imported
+      for (const inlineType of inlineParamTypes) {
+        usedTypesSet.delete(inlineType);
+      }
+      
+      // Update namespaceUsedTypes with the complete set
+      namespaceUsedTypes = Array.from(usedTypesSet).sort();
+      
+      // Add imports after we know all types that are used
+      if (namespaceUsedTypes.length > 0) {
+        namespaceFile.addImportDeclaration({
+          moduleSpecifier: '../types.js',
+          namedImports: namespaceUsedTypes,
+          isTypeOnly: true,
+        });
+      }
+
+      // Build object type literal
+      const typeMembers: string[] = [...methodSignatures, ...properties];
+      const typeString = `{ ${typeMembers.join('; ')} }`;
+      const docComment = `${rootNamespace} namespace operations`;
+
+      namespaceFile.addTypeAlias({
+        name: namespaceInterfaceName,
+        type: typeString,
+        isExported: true,
+        docs: [{ description: docComment }],
+      });
 
       // Export factory function
       namespaceFile.addVariableStatement({
@@ -1368,9 +1483,17 @@ export class OpenAPIGenerator {
       const namespacePropertyName = this.naming.toValidIdentifier(rootNamespace);
       const namespaceTypeName = namespaceInterfaceName;
 
+      // Import type separately as type-only
       mainFile.addImportDeclaration({
         moduleSpecifier: `./namespaces/${this.naming.toKebabCase(rootNamespace)}.js`,
-        namedImports: [namespaceTypeName, `create${this.naming.toTypeName(rootNamespace)}Namespace`],
+        namedImports: [namespaceTypeName],
+        isTypeOnly: true,
+      });
+      // Import factory function as value
+      mainFile.addImportDeclaration({
+        moduleSpecifier: `./namespaces/${this.naming.toKebabCase(rootNamespace)}.js`,
+        namedImports: [`create${this.naming.toTypeName(rootNamespace)}Namespace`],
+        isTypeOnly: false,
       });
 
       classDeclaration.addProperty({
@@ -1397,18 +1520,17 @@ export class OpenAPIGenerator {
     }
   }
 
-  private generateNestedNamespaceForSplit(
+  private buildNestedNamespaceTypeForSplit(
     namespaceClass: any,
-    namespaceInterface: any,
     rootNamespace: string,
     operations: Array<{ path: string; method: string; operation: any; operationId: string; metadata?: any }>,
     separator: string,
     file: SourceFile
-  ): void {
+  ): { methods: string[]; props: string[] } {
     // Similar to generateNestedNamespace but for split files
     // For now, generate flat structure - can be enhanced later
     
-    // Pre-generate all request body types before adding method signatures
+    // Pre-generate all request body types before building method signatures
     // This ensures ts-morph recognizes the types when serializing method signatures
     for (const { path, method, operation, operationId } of operations) {
       const requestBody = operation.requestBody;
@@ -1419,7 +1541,7 @@ export class OpenAPIGenerator {
           const baseMethodName = this.naming.toMethodName(operationId);
           const typeName = `${this.naming.toTypeName(baseMethodName)}Data`;
           // Generate the type now if it doesn't exist
-          const existingType = file.getInterface(typeName) || file.getTypeAlias(typeName);
+          const existingType = file.getTypeAlias(typeName);
           if (!existingType) {
             this.generateTypeFromSchema(file, typeName, schema);
           }
@@ -1435,7 +1557,7 @@ export class OpenAPIGenerator {
           const baseMethodName = this.naming.toMethodName(operationId);
           const typeName = `${this.naming.toTypeName(baseMethodName)}Data`;
           // Generate the type now if it doesn't exist
-          const existingType = file.getInterface(typeName) || file.getTypeAlias(typeName);
+          const existingType = file.getTypeAlias(typeName);
           if (!existingType) {
             this.generateTypeFromSchema(file, typeName, bodySchema);
           }
@@ -1443,13 +1565,34 @@ export class OpenAPIGenerator {
       }
     }
     
+    const methodSignatures: string[] = [];
+    const properties: string[] = [];
+    
     for (const { path, method, operation, operationId, metadata } of operations) {
       // OPTIMIZATION: Use pre-computed method name from metadata if available
       const methodName = metadata?.methodName || this.naming.toMethodName(operationId);
-      this.addMethodSignatureToInterface(namespaceInterface, path, method, operation, operationId);
-      // Methods must be public to match interface
+      // Build method signature string
+      const methodSig = this.buildMethodSignatureString(file, path, method, operation, operationId);
+      methodSignatures.push(methodSig);
+      // Methods must be public to match type
       this.generateMethod(namespaceClass, path, method, operation, methodName, true, metadata);
     }
+    
+    return { methods: methodSignatures, props: properties };
+  }
+
+  private generateNestedNamespaceForSplit(
+    namespaceClass: any,
+    namespaceInterface: any,
+    rootNamespace: string,
+    operations: Array<{ path: string; method: string; operation: any; operationId: string; metadata?: any }>,
+    separator: string,
+    file: SourceFile
+  ): void {
+    // Deprecated: Use buildNestedNamespaceTypeForSplit instead
+    // This method is kept for backward compatibility but should not be used
+    const { methods, props } = this.buildNestedNamespaceTypeForSplit(namespaceClass, rootNamespace, operations, separator, file);
+    // The old interface-based approach is no longer used
   }
 
   private collectUsedTypes(): string[] {
@@ -1895,17 +2038,8 @@ export class OpenAPIGenerator {
   private generateNamespaceProperty(classDeclaration: any, namespace: string, operations: Array<{ path: string; method: string; operation: any; operationId: string; metadata?: any }>): void {
     const file = classDeclaration.getSourceFile();
 
-    // Create an interface for the namespace methods
+    // Create a type alias for the namespace methods
     const namespaceInterfaceName = `${this.naming.toTypeName(namespace)}Operations`;
-    const namespaceInterface = file.addInterface({
-      name: namespaceInterfaceName,
-      isExported: true,
-    });
-
-    // Add JSDoc for the namespace interface
-    namespaceInterface.addJsDoc({
-      description: `${namespace} namespace operations`,
-    });
 
     // Pre-generate all request body types before adding method signatures
     // This ensures ts-morph recognizes the types when serializing method signatures
@@ -1918,7 +2052,7 @@ export class OpenAPIGenerator {
           const baseMethodName = this.naming.toMethodName(operationId);
           const typeName = `${this.naming.toTypeName(baseMethodName)}Data`;
           // Generate the type now if it doesn't exist
-          const existingType = file.getInterface(typeName) || file.getTypeAlias(typeName);
+          const existingType = file.getTypeAlias(typeName);
           if (!existingType) {
             this.generateTypeFromSchema(file, typeName, schema);
           }
@@ -1934,7 +2068,7 @@ export class OpenAPIGenerator {
           const baseMethodName = this.naming.toMethodName(operationId);
           const typeName = `${this.naming.toTypeName(baseMethodName)}Data`;
           // Generate the type now if it doesn't exist
-          const existingType = file.getInterface(typeName) || file.getTypeAlias(typeName);
+          const existingType = file.getTypeAlias(typeName);
           if (!existingType) {
             this.generateTypeFromSchema(file, typeName, bodySchema);
           }
@@ -1942,97 +2076,24 @@ export class OpenAPIGenerator {
       }
     }
 
-    // OPTIMIZATION: Generate method signatures for the interface using pre-computed metadata
+    // Build method signature strings for the type alias
+    const methodSignatures: string[] = [];
     for (const { path, method, operation, operationId, metadata } of operations) {
-      // OPTIMIZATION: Use pre-computed method name from metadata
-      const methodName = metadata?.methodName || this.naming.toMethodName(operationId);
-      const requestBody = operation.requestBody;
-
-      const methodParams: any[] = [];
-      const allParams: any[] = [];
-
-      // OPTIMIZATION: Use pre-resolved parameters from metadata
-      const resolvedParameters = metadata?.resolvedParameters || (() => {
-        const parameters = operation.parameters || [];
-        const resolved: any[] = [];
-        for (const param of parameters) {
-          let resolvedParam = param;
-          if (param.$ref) {
-            resolvedParam = this.resolveParameterReference(param.$ref);
-            if (!resolvedParam) continue;
-          }
-          resolved.push(resolvedParam);
-        }
-        return resolved;
-      })();
-
-      // OPTIMIZATION: Use pre-resolved parameters, eliminating redundant $ref resolution
-      for (const resolvedParam of resolvedParameters) {
-        // Skip parameters with empty or undefined names
-        if (!resolvedParam.name || resolvedParam.name.trim() === '') {
-          continue;
-        }
-
-        const paramName = this.naming.toPropertyName(resolvedParam.name);
-        const paramSchema = this.getParameterSchema(resolvedParam);
-        const paramType = this.getTypeString(paramSchema);
-
-        const paramInfo = {
-          name: paramName,
-          type: paramType,
-          required: resolvedParam.required,
-          description: resolvedParam.description,
-          in: resolvedParam.in,
-        };
-
-        allParams.push(paramInfo);
-      }
-
-      // Create parameter type interface if there are any parameters
-      const hasParams = allParams.length > 0;
-      let paramsTypeName = '';
-
-      if (hasParams) {
-        paramsTypeName = `${this.naming.toTypeName(methodName)}Params`;
-        this.generateParameterInterface(file, paramsTypeName, allParams);
-
-        const allRequired = allParams.filter(p => p.required).length > 0;
-        methodParams.push({
-          name: 'params',
-          type: paramsTypeName,
-          hasQuestionToken: !allRequired,
-        });
-      }
-
-      // Add request body as separate parameter
-      if (requestBody) {
-        const contentType = Object.keys(requestBody.content || {})[0];
-        const schema = requestBody.content?.[contentType]?.schema;
-        const baseMethodName = this.naming.toMethodName(operationId);
-        const dataTypeName = this.generateRequestBodyType(file, schema, baseMethodName);
-        methodParams.push({
-          name: 'data',
-          type: dataTypeName,
-          hasQuestionToken: !requestBody.required,
-        });
-      }
-
-      methodParams.push({
-        name: 'config',
-        type: 'AxiosRequestConfig',
-        hasQuestionToken: true,
-      });
-
-      const responseType = this.getResponseType(operation.responses);
-
-      // Add method signature to interface
-      namespaceInterface.addMethod({
-        name: methodName,
-        parameters: methodParams,
-        returnType: `Promise<AxiosResponse<${responseType}>>`,
-        docs: operation.summary ? [{ description: operation.summary }] : undefined,
-      });
+      // Build method signature string
+      const methodSig = this.buildMethodSignatureString(file, path, method, operation, operationId);
+      methodSignatures.push(methodSig);
     }
+
+    // Build object type literal
+    const typeString = `{ ${methodSignatures.join('; ')} }`;
+    const docComment = `${namespace} namespace operations`;
+
+    file.addTypeAlias({
+      name: namespaceInterfaceName,
+      type: typeString,
+      isExported: true,
+      docs: [{ description: docComment }],
+    });
 
     // Sanitize namespace name for use as property identifier
     // Use toValidIdentifier for property names to ensure TypeScript-safe identifiers (camelCase)
@@ -2164,24 +2225,15 @@ ${operations.map(({ operationId }) => {
     // Convert to sorted array for consistent ordering
     const sortedLevels = Array.from(allNamespaceLevels).sort();
 
-    // Create interfaces for each namespace level
+    // Create type aliases for each namespace level
     for (const namespacePath of sortedLevels) {
       const namespacePathParts = namespacePath.split(separator);
       const interfaceName = `${this.naming.toTypeName(namespacePathParts.join('_'))}Operations`;
       
-      // Check if interface already exists
-      if (file.getInterface(interfaceName)) {
+      // Check if type already exists
+      if (file.getTypeAlias(interfaceName)) {
         continue;
       }
-
-      const interfaceDeclaration = file.addInterface({
-        name: interfaceName,
-        isExported: true,
-      });
-
-      interfaceDeclaration.addJsDoc({
-        description: `${namespacePath} namespace operations`,
-      });
 
       // OPTIMIZATION: Use pre-computed parts from metadata if available
       const directMethods = operations.filter(op => {
@@ -2189,9 +2241,11 @@ ${operations.map(({ operationId }) => {
         return opParts.slice(0, -1).join(separator) === namespacePath;
       });
 
-      // Add method signatures for direct methods
+      // Build method signatures for direct methods
+      const methodSignatures: string[] = [];
       for (const { path, method, operation, operationId } of directMethods) {
-        this.addMethodSignatureToInterface(interfaceDeclaration, path, method, operation, operationId);
+        const methodSig = this.buildMethodSignatureString(file, path, method, operation, operationId);
+        methodSignatures.push(methodSig);
       }
 
       // OPTIMIZATION: Use pre-computed parts from metadata if available
@@ -2206,24 +2260,31 @@ ${operations.map(({ operationId }) => {
         }
       }
 
-      // Add properties for sub-namespaces
+      // Build properties for sub-namespaces
+      const properties: string[] = [];
       for (const subNamespace of subNamespaces) {
         const subNamespacePath = [...namespacePathParts, subNamespace];
         const subInterfaceName = `${this.naming.toTypeName(subNamespacePath.join('_'))}Operations`;
         // Use toValidIdentifier for property names to ensure consistency with class property names (camelCase)
         const subNamespacePropertyName = this.naming.toValidIdentifier(subNamespace);
-        
-        interfaceDeclaration.addProperty({
-          name: subNamespacePropertyName,
-          type: subInterfaceName,
-          isReadonly: true,
-          docs: [{ description: `${subNamespace} sub-namespace` }],
-        });
+        properties.push(`${subNamespacePropertyName}: ${subInterfaceName}`);
       }
+
+      // Build object type literal
+      const typeMembers: string[] = [...methodSignatures, ...properties];
+      const typeString = `{ ${typeMembers.join('; ')} }`;
+      const docComment = `${namespacePath} namespace operations`;
+
+      file.addTypeAlias({
+        name: interfaceName,
+        type: typeString,
+        isExported: true,
+        docs: [{ description: docComment }],
+      });
     }
   }
 
-  private addMethodSignatureToInterface(interfaceDeclaration: any, path: string, method: string, operation: any, operationId: string): void {
+  private buildMethodSignatureString(file: SourceFile, path: string, method: string, operation: any, operationId: string): string {
     const methodName = this.naming.toMethodName(operationId);
     const parameters = operation.parameters || [];
     const requestBody = operation.requestBody;
@@ -2268,7 +2329,7 @@ ${operations.map(({ operationId }) => {
 
     if (hasParams) {
       paramsTypeName = `${this.naming.toTypeName(methodName)}Params`;
-      this.generateParameterInterface(interfaceDeclaration.getSourceFile(), paramsTypeName, allParams);
+      this.generateParameterInterface(file, paramsTypeName, allParams);
 
       // The params parameter should be required if ANY parameter is required
       const hasRequiredParams = allParams.some(p => p.required);
@@ -2283,7 +2344,7 @@ ${operations.map(({ operationId }) => {
     if (requestBody) {
       const contentType = Object.keys(requestBody.content || {})[0];
       const schema = requestBody.content?.[contentType]?.schema;
-      const dataTypeName = this.generateRequestBodyType(interfaceDeclaration.getSourceFile(), schema, methodName);
+      const dataTypeName = this.generateRequestBodyType(file, schema, methodName);
       methodParams.push({
         name: 'data',
         type: dataTypeName,
@@ -2299,11 +2360,98 @@ ${operations.map(({ operationId }) => {
 
     const responseType = this.getResponseType(operation.responses);
 
-    // Add method signature to interface
+    // Build method signature string
+    const paramStrings = methodParams.map(p => `${p.name}${p.hasQuestionToken ? '?' : ''}: ${p.type}`);
+    return `${methodName}(${paramStrings.join(', ')}): Promise<AxiosResponse<${responseType}>>`;
+  }
+
+  private addMethodSignatureToInterface(interfaceDeclaration: any, path: string, method: string, operation: any, operationId: string): void {
+    const file = interfaceDeclaration.getSourceFile();
+    const methodSignature = this.buildMethodSignatureString(file, path, method, operation, operationId);
+    const methodName = this.naming.toMethodName(operationId);
+    
+    // Parse the method signature to extract parameters and return type
+    const match = methodSignature.match(/^(\w+)\((.*?)\):\s*(.+)$/);
+    if (!match) {
+      // Fallback: add method using the old approach
+      const parameters = operation.parameters || [];
+      const requestBody = operation.requestBody;
+      const methodParams: any[] = [];
+      const allParams: any[] = [];
+
+      for (const param of parameters) {
+        let resolvedParam = param;
+        if (param.$ref) {
+          resolvedParam = this.resolveParameterReference(param.$ref);
+          if (!resolvedParam) continue;
+        }
+        if (!resolvedParam.name || resolvedParam.name.trim() === '') continue;
+
+        const paramName = this.naming.toPropertyName(resolvedParam.name);
+        const paramSchema = this.getParameterSchema(resolvedParam);
+        const paramType = this.getTypeString(paramSchema);
+        allParams.push({
+          name: paramName,
+          type: paramType,
+          required: resolvedParam.required,
+        });
+      }
+
+      const hasParams = allParams.length > 0;
+      if (hasParams) {
+        const paramsTypeName = `${this.naming.toTypeName(methodName)}Params`;
+        this.generateParameterInterface(file, paramsTypeName, allParams);
+        const hasRequiredParams = allParams.some(p => p.required);
+        methodParams.push({
+          name: 'params',
+          type: paramsTypeName,
+          hasQuestionToken: !hasRequiredParams,
+        });
+      }
+
+      if (requestBody) {
+        const contentType = Object.keys(requestBody.content || {})[0];
+        const schema = requestBody.content?.[contentType]?.schema;
+        const dataTypeName = this.generateRequestBodyType(file, schema, methodName);
+        methodParams.push({
+          name: 'data',
+          type: dataTypeName,
+          hasQuestionToken: !requestBody.required,
+        });
+      }
+
+      methodParams.push({
+        name: 'config',
+        type: 'AxiosRequestConfig',
+        hasQuestionToken: true,
+      });
+
+      const responseType = this.getResponseType(operation.responses);
+      interfaceDeclaration.addMethod({
+        name: methodName,
+        parameters: methodParams,
+        returnType: `Promise<AxiosResponse<${responseType}>>`,
+        docs: operation.summary ? [{ description: operation.summary }] : undefined,
+      });
+      return;
+    }
+
+    // This method is deprecated - we should use buildMethodSignatureString instead
+    // But keeping it for backward compatibility with existing code
+    const [, , paramString, returnType] = match;
+    const params = paramString ? paramString.split(',').map(p => {
+      const [name, type] = p.split(':').map(s => s.trim());
+      return {
+        name: name.replace('?', ''),
+        type: type,
+        hasQuestionToken: name.includes('?'),
+      };
+    }) : [];
+
     interfaceDeclaration.addMethod({
       name: methodName,
-      parameters: methodParams,
-      returnType: `Promise<AxiosResponse<${responseType}>>`,
+      parameters: params,
+      returnType: returnType,
       docs: operation.summary ? [{ description: operation.summary }] : undefined,
     });
   }
@@ -2666,39 +2814,63 @@ ${operations.map(({ operationId }) => {
   }
 
   private generateParameterInterface(file: SourceFile, typeName: string, allParams: any[]): void {
-    // Check if interface already exists to avoid duplicates
-    const existingInterface = file.getInterface(typeName);
-    if (existingInterface) {
+    // Check if type already exists to avoid duplicates
+    const existingType = file.getTypeAlias(typeName);
+    if (existingType) {
       return;
     }
 
-    const interfaceDeclaration = file.addInterface({
-      name: typeName,
-      isExported: true,
-    });
-
-    // Add all parameters (path, query, header) - excluding request body
+    // Build object type literal with JSDoc comments on properties
+    const propStrings: string[] = [];
     for (const param of allParams) {
       // Skip parameters with empty or undefined names
       if (!param.name || param.name.trim() === '') {
         continue;
       }
 
-      let description = param.description || '';
+      const propName = this.naming.toPropertyName(param.name);
+      const optional = !param.required;
+      
+      // Build JSDoc comment for this parameter
+      let docComment = param.description || '';
       if (param.in === 'path') {
-        description = description ? `${description} (path parameter)` : 'Path parameter';
+        docComment = docComment ? `${docComment} (path parameter)` : 'Path parameter';
       } else if (param.in === 'query') {
-        description = description ? `${description} (query parameter)` : 'Query parameter';
+        docComment = docComment ? `${docComment} (query parameter)` : 'Query parameter';
       } else if (param.in === 'header') {
-        description = description ? `${description} (header parameter)` : 'Header parameter';
+        docComment = docComment ? `${docComment} (header parameter)` : 'Header parameter';
       }
+      
+      if (docComment) {
+        // Format with JSDoc comment above the property (no indentation - ts-morph will add it)
+        propStrings.push(`/** ${this.jsdoc.escapeBackticks(docComment)} */`);
+      }
+      
+      // Add property with proper formatting (no indentation - ts-morph will add it)
+      propStrings.push(`${propName}${optional ? '?' : ''}: ${param.type};`);
+    }
 
-      interfaceDeclaration.addProperty({
-        name: this.naming.toPropertyName(param.name),
-        type: param.type,
-        hasQuestionToken: !param.required,
-        docs: description ? [{ description }] : undefined,
-      });
+    // Build type string with proper 2-space indentation
+    // Format properties with 2 spaces indentation
+    const formattedProps = propStrings.map(prop => `  ${prop}`);
+    const typeString = `{\n${formattedProps.join('\n')}\n}`;
+
+    // Add type alias - ts-morph will add base indentation
+    const typeAlias = file.addTypeAlias({
+      name: typeName,
+      type: typeString,
+      isExported: true,
+    });
+    
+    // Fix indentation: ts-morph adds 4 spaces, we want 2 spaces total
+    const currentType = typeAlias.getTypeNode();
+    if (currentType) {
+      const currentText = currentType.getText();
+      // Replace 6 spaces with 2 spaces, 4 spaces with 0 spaces (for closing brace)
+      const fixedText = currentText
+        .replace(/^      /gm, '  ')  // 6 spaces -> 2 spaces
+        .replace(/^    }/gm, '}');   // 4 spaces before closing brace -> 0 spaces
+      currentType.replaceWithText(fixedText);
     }
   }
 
@@ -2722,7 +2894,7 @@ ${operations.map(({ operationId }) => {
     const typeName = `${this.naming.toTypeName(baseMethodName)}Data`;
     
     // Check if type already exists to avoid duplicates
-    const existingType = file.getInterface(typeName) || file.getTypeAlias(typeName);
+    const existingType = file.getTypeAlias(typeName);
     if (existingType) {
       return typeName;
     }

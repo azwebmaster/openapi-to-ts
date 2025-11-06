@@ -43,8 +43,11 @@ export class JSDocUtils {
     // Add constraints and metadata in a compact format
     const constraints: string[] = [];
 
-    // Type information - only add if we don't have a description
-    if (!schema.description && schema.type) {
+    // Type information - only add if we don't have a description and it's not an object type
+    // (object types are self-evident from the type definition)
+    // Skip if it's an object type (has type: 'object' or has properties)
+    const isObjectType = schema.type === 'object' || (schema.properties && Object.keys(schema.properties).length > 0);
+    if (!schema.description && schema.type && !isObjectType) {
       constraints.push(`Type: ${schema.type}`);
     }
 

@@ -4056,6 +4056,441 @@ describe('OpenAPIGenerator', () => {
       });
     });
   });
+
+  describe('type formatting validation', () => {
+    let generator: OpenAPIGenerator;
+    const testOutputDir = './test-format-output';
+
+    beforeEach(() => {
+      generator = new OpenAPIGenerator({
+        spec: 'test-spec.yaml',
+        outputDir: testOutputDir,
+        namespace: 'TestAPI'
+      });
+    });
+
+    afterEach(async () => {
+      // Restore mocks
+      vi.restoreAllMocks();
+      
+      // Clean up test output
+      try {
+        await fs.rm(testOutputDir, { recursive: true, force: true });
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+    });
+
+    it('should generate types with correct formatting', async () => {
+      // Mock API with a schema that has description and properties with descriptions
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        components: {
+          schemas: {
+            'User': {
+              type: 'object',
+              description: 'A user account',
+              properties: {
+                'id': {
+                  type: 'integer',
+                  description: 'Unique identifier for the user',
+                  format: 'int64'
+                },
+                'name': {
+                  type: 'string',
+                  description: 'The user\'s full name'
+                },
+                'email': {
+                  type: 'string',
+                  format: 'email',
+                  description: 'The user\'s email address'
+                }
+              },
+              required: ['id', 'name']
+            }
+          }
+        },
+        paths: {}
+      } as any;
+
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the types
+      await generator.generate();
+
+      // Read the generated types file
+      const typesFile = path.join(testOutputDir, 'types.ts');
+      const typesContent = await fs.readFile(typesFile, 'utf-8');
+
+      // Validate type-level JSDoc uses schema description
+      expect(typesContent).toContain('/** A user account */');
+      expect(typesContent).not.toContain('Type: object');
+      expect(typesContent).not.toContain('User property');
+
+      // Validate property formatting - ts-morph adds base indentation, so we check for consistent indentation
+      // Properties should be consistently indented (ts-morph may add base indentation)
+      const propertyLines = typesContent.split('\n').filter(line => 
+        line.trim().startsWith('id:') || line.trim().startsWith('name:') || line.trim().startsWith('email:')
+      );
+      
+      propertyLines.forEach(line => {
+        // Properties should be indented (not at start of line)
+        expect(line).toMatch(/^\s+(id|name|email)/);
+        // All properties should have the same indentation
+        const indent = line.match(/^(\s+)/)?.[1];
+        expect(indent).toBeDefined();
+      });
+
+      // Validate JSDoc comments on properties (may include additional metadata like Format)
+      expect(typesContent).toContain('Unique identifier for the user');
+      expect(typesContent).toContain('The user\'s full name');
+      expect(typesContent).toContain('The user\'s email address');
+
+      // Validate property JSDoc formatting - should be on line(s) before property
+      const lines = typesContent.split('\n');
+      let foundIdProperty = false;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim().startsWith('id: number')) {
+          // Check that there's a JSDoc comment before the property (may span multiple lines)
+          // Look backwards for the JSDoc comment
+          let foundJSDoc = false;
+          for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+            if (lines[j].includes('/**')) {
+              foundJSDoc = true;
+              // Check that the JSDoc comment contains the description
+              const jsdocContent = lines.slice(j, i).join('\n');
+              expect(jsdocContent).toContain('Unique identifier for the user');
+              break;
+            }
+          }
+          expect(foundJSDoc).toBe(true);
+          foundIdProperty = true;
+          break;
+        }
+      }
+      expect(foundIdProperty).toBe(true);
+
+      // Validate closing brace formatting - should be on its own line
+      expect(typesContent).toMatch(/\n\s*};/m);
+      // Closing brace should be consistently indented (ts-morph may add base indentation)
+      const closingBraceMatch = typesContent.match(/\n(\s*)};/m);
+      expect(closingBraceMatch).toBeTruthy();
+
+      // Validate type alias format
+      expect(typesContent).toContain('export type User = {');
+    });
+
+    it('should not include JSDoc when schema has no description', async () => {
+      // Mock API with a schema without description
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        components: {
+          schemas: {
+            'Anonymous': {
+              type: 'object',
+              properties: {
+                'value': {
+                  type: 'string'
+                }
+              }
+            }
+          }
+        },
+        paths: {}
+      } as any;
+
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the types
+      await generator.generate();
+
+      // Read the generated types file
+      const typesFile = path.join(testOutputDir, 'types.ts');
+      const typesContent = await fs.readFile(typesFile, 'utf-8');
+
+      // Should not have JSDoc comment for type without description
+      const typeDeclaration = typesContent.match(/export type Anonymous = \{/);
+      expect(typeDeclaration).toBeTruthy();
+      
+      // Check that there's no JSDoc comment before the type declaration
+      const typeIndex = typesContent.indexOf('export type Anonymous = {');
+      const beforeType = typesContent.substring(Math.max(0, typeIndex - 50), typeIndex);
+      expect(beforeType).not.toMatch(/\/\*\*.*Anonymous.*\*\//);
+    });
+
+    it('should format nested object types correctly', async () => {
+      // Mock API with nested object schema
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        components: {
+          schemas: {
+            'Address': {
+              type: 'object',
+              description: 'A physical address',
+              properties: {
+                'street': {
+                  type: 'string',
+                  description: 'Street address'
+                },
+                'city': {
+                  type: 'string',
+                  description: 'City name'
+                }
+              },
+              required: ['street', 'city']
+            }
+          }
+        },
+        paths: {}
+      } as any;
+
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the types
+      await generator.generate();
+
+      // Read the generated types file
+      const typesFile = path.join(testOutputDir, 'types.ts');
+      const typesContent = await fs.readFile(typesFile, 'utf-8');
+
+      // Validate nested object formatting
+      expect(typesContent).toContain('/** A physical address */');
+      expect(typesContent).toContain('export type Address = {');
+      
+      // Properties should be consistently indented (ts-morph may add base indentation)
+      expect(typesContent).toMatch(/\s+\/\*\* Street address \*\//);
+      expect(typesContent).toMatch(/\s+street: string;/);
+      expect(typesContent).toMatch(/\s+\/\*\* City name \*\//);
+      expect(typesContent).toMatch(/\s+city: string;/);
+      
+      // Validate that JSDoc comments are on lines before their properties
+      const addressLines = typesContent.split('\n');
+      let foundStreet = false;
+      for (let i = 0; i < addressLines.length; i++) {
+        if (addressLines[i].trim().startsWith('street: string')) {
+          // Previous line should have the JSDoc comment
+          expect(addressLines[i - 1].trim()).toBe('/** Street address */');
+          foundStreet = true;
+          break;
+        }
+      }
+      expect(foundStreet).toBe(true);
+    });
+  });
+
+  describe('type generation snapshot tests', () => {
+    let generator: OpenAPIGenerator;
+    const testOutputDir = './test-snapshot-output';
+
+    beforeEach(() => {
+      generator = new OpenAPIGenerator({
+        spec: 'test-spec.yaml',
+        outputDir: testOutputDir,
+        namespace: 'TestAPI'
+      });
+    });
+
+    afterEach(async () => {
+      // Restore mocks
+      vi.restoreAllMocks();
+      
+      // Clean up test output
+      try {
+        await fs.rm(testOutputDir, { recursive: true, force: true });
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+    });
+
+    it('should generate types with correct format and JSDoc comments', async () => {
+      // Mock API with comprehensive schema that has description and properties with descriptions
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        components: {
+          schemas: {
+            'User': {
+              type: 'object',
+              description: 'A user account in the system',
+              properties: {
+                'id': {
+                  type: 'integer',
+                  description: 'Unique identifier for the user',
+                  format: 'int64'
+                },
+                'name': {
+                  type: 'string',
+                  description: 'The user\'s full name'
+                },
+                'email': {
+                  type: 'string',
+                  format: 'email',
+                  description: 'The user\'s email address'
+                },
+                'age': {
+                  type: 'integer',
+                  minimum: 0,
+                  maximum: 150
+                },
+                'address': {
+                  type: 'object',
+                  description: 'User\'s physical address',
+                  properties: {
+                    'street': {
+                      type: 'string',
+                      description: 'Street address'
+                    },
+                    'city': {
+                      type: 'string',
+                      description: 'City name'
+                    },
+                    'zipCode': {
+                      type: 'string',
+                      description: 'ZIP code',
+                      pattern: '^\\d{5}(-\\d{4})?$'
+                    }
+                  },
+                  required: ['street', 'city']
+                }
+              },
+              required: ['id', 'name', 'email']
+            },
+            'Status': {
+              type: 'string',
+              description: 'Current status of the resource',
+              enum: ['active', 'inactive', 'pending']
+            },
+            'Metadata': {
+              type: 'object',
+              description: 'Additional metadata',
+              properties: {
+                'createdAt': {
+                  type: 'string',
+                  format: 'date-time',
+                  description: 'Creation timestamp'
+                },
+                'updatedAt': {
+                  type: 'string',
+                  format: 'date-time',
+                  description: 'Last update timestamp'
+                }
+              }
+            }
+          }
+        },
+        paths: {}
+      } as any;
+
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the types
+      await generator.generate();
+
+      // Read the generated types file
+      const typesFile = path.join(testOutputDir, 'types.ts');
+      const typesContent = await fs.readFile(typesFile, 'utf-8');
+
+      // Use snapshot testing to verify the generated types
+      expect(typesContent).toMatchSnapshot();
+    });
+
+    it('should generate types without JSDoc when schema has no description', async () => {
+      // Mock API with schemas without descriptions
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        components: {
+          schemas: {
+            'Anonymous': {
+              type: 'object',
+              properties: {
+                'value': {
+                  type: 'string'
+                }
+              }
+            },
+            'SimpleType': {
+              type: 'string'
+            }
+          }
+        },
+        paths: {}
+      } as any;
+
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the types
+      await generator.generate();
+
+      // Read the generated types file
+      const typesFile = path.join(testOutputDir, 'types.ts');
+      const typesContent = await fs.readFile(typesFile, 'utf-8');
+
+      // Use snapshot testing to verify the generated types
+      expect(typesContent).toMatchSnapshot();
+    });
+
+    it('should generate types with composition schemas correctly', async () => {
+      // Mock API with composition schemas (anyOf, oneOf, allOf)
+      const mockApi = {
+        info: { title: 'Test API', version: '1.0.0' },
+        components: {
+          schemas: {
+            'BaseEntity': {
+              type: 'object',
+              description: 'Base entity with common fields',
+              properties: {
+                'id': {
+                  type: 'string',
+                  description: 'Entity identifier'
+                },
+                'createdAt': {
+                  type: 'string',
+                  format: 'date-time',
+                  description: 'Creation timestamp'
+                }
+              },
+              required: ['id']
+            },
+            'ComposedType': {
+              description: 'A type composed from multiple schemas',
+              allOf: [
+                { $ref: '#/components/schemas/BaseEntity' },
+                {
+                  type: 'object',
+                  properties: {
+                    'name': {
+                      type: 'string',
+                      description: 'Entity name'
+                    }
+                  },
+                  required: ['name']
+                }
+              ]
+            },
+            'UnionType': {
+              description: 'A union type',
+              anyOf: [
+                { type: 'string' },
+                { type: 'number' }
+              ]
+            }
+          }
+        },
+        paths: {}
+      } as any;
+
+      vi.spyOn(SwaggerParser, 'parse').mockResolvedValue(mockApi);
+
+      // Generate the types
+      await generator.generate();
+
+      // Read the generated types file
+      const typesFile = path.join(testOutputDir, 'types.ts');
+      const typesContent = await fs.readFile(typesFile, 'utf-8');
+
+      // Use snapshot testing to verify the generated types
+      expect(typesContent).toMatchSnapshot();
+    });
+  });
 });
 
 // Helper functions for leak detection

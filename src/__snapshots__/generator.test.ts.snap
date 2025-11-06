@@ -1,0 +1,66 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`OpenAPIGenerator type generation snapshot tests should generate types with correct format and JSDoc comments 1`] = `
+"/** A user account in the system */
+export type User = {
+  /** Unique identifier for the user
+    Format: int64 */
+  id: number;
+  /** The user's full name */
+  name: string;
+  /** The user's email address
+    Format: email */
+  email: string;
+  /** age property
+    Type: integer, Minimum: 0, Maximum: 150 */
+  age?: number;
+  /** User's physical address */
+  address?: {
+  /** Street address */
+  street: string;
+  /** City name */
+  city: string;
+  /** ZIP code
+    Pattern: ^\\d{5}(-\\d{4})?$ */
+  zipCode?: string;
+};
+};
+/** Current status of the resource */
+export type Status = "active" | "inactive" | "pending";
+/** Additional metadata */
+export type Metadata = {
+  /** Creation timestamp
+    Format: date-time */
+  createdAt?: string;
+  /** Last update timestamp
+    Format: date-time */
+  updatedAt?: string;
+};
+"
+`;
+
+exports[`OpenAPIGenerator type generation snapshot tests should generate types without JSDoc when schema has no description 1`] = `
+"export type Anonymous = {
+  /** value property
+    Type: string */
+  value?: string;
+};
+export type SimpleType = string;
+"
+`;
+
+exports[`OpenAPIGenerator type generation snapshot tests should generate types with composition schemas correctly 1`] = `
+"/** Base entity with common fields */
+export type BaseEntity = {
+  /** Entity identifier */
+  id: string;
+  /** Creation timestamp
+    Format: date-time */
+  createdAt?: string;
+};
+/** A type composed from multiple schemas */
+export type ComposedType = (BaseEntity & { name: string });
+/** A union type */
+export type UnionType = (string | number);
+"
+`;
