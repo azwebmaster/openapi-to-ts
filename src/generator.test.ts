@@ -1153,16 +1153,16 @@ describe('OpenAPIGenerator', () => {
         const adminNamespaceContent = await fs.readFile(adminNamespacePath, 'utf-8');
         const publicNamespaceContent = await fs.readFile(publicNamespacePath, 'utf-8');
         
-        expect(adminNamespaceContent).toContain('interface AdminOperations');
-        expect(publicNamespaceContent).toContain('interface PublicOperations');
+        expect(adminNamespaceContent).toContain('type AdminOperations');
+        expect(publicNamespaceContent).toContain('type PublicOperations');
         
         // Verify method signatures in namespace interfaces
-        expect(adminNamespaceContent).toContain('getUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
-        expect(adminNamespaceContent).toContain('createUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
-        expect(publicNamespaceContent).toContain('getInfo(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(adminNamespaceContent).toContain('getUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(adminNamespaceContent).toContain('createUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(publicNamespaceContent).toContain('getInfo(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
 
         // Verify nested dot-separated operationId is flattened to method (admin.roles.getAll -> rolesGetAll)
-        expect(adminNamespaceContent).toContain('rolesGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(adminNamespaceContent).toContain('rolesGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
 
       } finally {
         // Clean up test directory
@@ -1286,15 +1286,15 @@ describe('OpenAPIGenerator', () => {
         const adminNamespacePath = path.join(testOutputDir, 'namespaces', 'admin.ts');
         const adminNamespaceContent = await fs.readFile(adminNamespacePath, 'utf-8');
         
-        expect(adminNamespaceContent).toContain('interface AdminOperations');
+        expect(adminNamespaceContent).toContain('type AdminOperations');
         
         // Verify nested dot-separated operationIds are flattened to flat method names
         // (e.g., admin.users.roles.getAll -> usersRolesGetAll)
-        expect(adminNamespaceContent).toContain('usersRolesGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
-        expect(adminNamespaceContent).toContain('usersRolesCreate(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
-        expect(adminNamespaceContent).toContain('usersPermissionsGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
-        expect(adminNamespaceContent).toContain('systemConfigGet(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
-        expect(adminNamespaceContent).toContain('systemConfigUpdate(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+        expect(adminNamespaceContent).toContain('usersRolesGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(adminNamespaceContent).toContain('usersRolesCreate(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(adminNamespaceContent).toContain('usersPermissionsGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(adminNamespaceContent).toContain('systemConfigGet(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(adminNamespaceContent).toContain('systemConfigUpdate(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
 
       } finally {
         // Clean up test directory
@@ -1395,13 +1395,13 @@ describe('OpenAPIGenerator', () => {
         const usersNamespacePath = path.join(testOutputDir, 'namespaces', 'users.ts');
         const usersNamespaceContent = await fs.readFile(usersNamespacePath, 'utf-8');
         
-        expect(usersNamespaceContent).toContain('interface UsersOperations');
+        expect(usersNamespaceContent).toContain('type UsersOperations');
         
         // Verify method signatures in the users interface
-        expect(usersNamespaceContent).toContain('getUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
-        expect(usersNamespaceContent).toContain('createUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
-        expect(usersNamespaceContent).toContain('updateUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
-        expect(usersNamespaceContent).toContain('deleteUser(config?: AxiosRequestConfig): Promise<AxiosResponse<void>>;');
+        expect(usersNamespaceContent).toContain('getUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(usersNamespaceContent).toContain('createUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(usersNamespaceContent).toContain('updateUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(usersNamespaceContent).toContain('deleteUser(config?: AxiosRequestConfig): Promise<AxiosResponse<void>>');
 
         // Verify the namespace is properly initialized in constructor
         expect(clientContent).toContain('this.users = createUsersNamespace(this.client);');
@@ -2976,7 +2976,7 @@ describe('OpenAPIGenerator', () => {
       expect(clientContent).not.toContain('getUserById(params?: GetUserByIdParams, config?: AxiosRequestConfig)');
 
       // Check that the parameter interface is generated correctly
-      expect(clientContent).toContain('export interface GetUserByIdParams {');
+      expect(clientContent).toContain('export type GetUserByIdParams =');
       expect(clientContent).toContain('id: string;'); // Required parameter
       expect(clientContent).toContain('include?: string;'); // Optional parameter
     });
@@ -3034,7 +3034,7 @@ describe('OpenAPIGenerator', () => {
       expect(clientContent).not.toContain('getUsers(params: GetUsersParams, config?: AxiosRequestConfig)');
 
       // Check that the parameter interface is generated correctly
-      expect(clientContent).toContain('export interface GetUsersParams {');
+      expect(clientContent).toContain('export type GetUsersParams =');
       expect(clientContent).toContain('page?: number;'); // Optional parameter
       expect(clientContent).toContain('limit?: number;'); // Optional parameter
     });
@@ -3098,7 +3098,7 @@ describe('OpenAPIGenerator', () => {
       expect(clientContent).not.toContain('searchContent(params?: SearchContentParams, config?: AxiosRequestConfig)');
 
       // Check that the parameter interface is generated correctly
-      expect(clientContent).toContain('export interface SearchContentParams {');
+      expect(clientContent).toContain('export type SearchContentParams =');
       expect(clientContent).toContain('q: string;'); // Required parameter
       expect(clientContent).toContain('type?: Array<string>;'); // Optional parameter
       expect(clientContent).toContain('date_from?: string;'); // Optional parameter
@@ -3195,11 +3195,11 @@ describe('OpenAPIGenerator', () => {
       const adminNamespacePath = path.join(testOutputDir, 'namespaces', 'admin.ts');
       const adminNamespaceContent = await fs.readFile(adminNamespacePath, 'utf-8');
       
-      expect(adminNamespaceContent).toContain('getUser(params: GetUserParams, config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
-      expect(adminNamespaceContent).not.toContain('getUser(params?: GetUserParams, config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>;');
+      expect(adminNamespaceContent).toContain('getUser(params: GetUserParams, config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+      expect(adminNamespaceContent).not.toContain('getUser(params?: GetUserParams, config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
 
       // Check that the parameter interface is generated correctly (in namespace file)
-      expect(adminNamespaceContent).toContain('export interface GetUserParams {');
+      expect(adminNamespaceContent).toContain('export type GetUserParams =');
       expect(adminNamespaceContent).toContain('id: string;'); // Required parameter
       expect(adminNamespaceContent).toContain('include?: string;'); // Optional parameter
     });
@@ -3253,7 +3253,7 @@ describe('OpenAPIGenerator', () => {
       expect(clientContent).not.toContain('getUserById(params?: GetUserByIdParams, config?: AxiosRequestConfig)');
 
       // Check that the parameter interface is generated correctly
-      expect(clientContent).toContain('export interface GetUserByIdParams {');
+      expect(clientContent).toContain('export type GetUserByIdParams =');
       expect(clientContent).toContain('id: string;'); // Required parameter
       expect(clientContent).toContain('include?: string;'); // Optional parameter
     });
