@@ -1,6 +1,9 @@
-import { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
+import { AxiosInstance, AxiosRequestConfig } from "axios";
 import axios from "axios";
-import type { Address, AnalyticsReport, BaseNotification, Category, CreateUserRequest, CreateWebhookRequest, DateRange, EmailNotification, ExportData, Facet, FileInfo, HealthStatus, Pagination, PatchUserRequest, PushNotification, RetryConfig, SMSNotification, SearchResult, SearchResults, ServiceHealth, UpdateUserRequest, User, UserPreferences, Webhook } from "./types.js";
+import { ApiOperations, createApiNamespace } from "./namespaces/api.js";
+import { GetOperations, createGetNamespace } from "./namespaces/get-.js";
+import { GetSpecialCharsOperations, createGetSpecialCharsNamespace } from "./namespaces/get-special-chars.js";
+import { NamespaceOperations, createNamespaceNamespace } from "./namespaces/namespace.js";
 
 /**
  * Comprehensive Test API
@@ -15,24 +18,18 @@ import type { Address, AnalyticsReport, BaseNotification, Category, CreateUserRe
  * - Edge cases and special scenarios
  *
  */
-export class APIClient {
+export class ComprehensiveAPIClient {
     private readonly client: AxiosInstance;
+    /** Access to the internal AxiosInstance for advanced usage */
+    public readonly axios: AxiosInstance;
 
     constructor(baseURL: string, config?: AxiosRequestConfig) {
         this.client = axios.create({ baseURL, ...config });
-        this.get_ = {
-              getHealth: this.get__getHealth.bind(this)
-            };
-        this.api = {
-              v1: {
-                v1GetResources: this.api_v1_v1GetResources.bind(this)
-              }
-            };
-        this.namespace = {
-              action: {
-                actionCreate: this.namespace_action_actionCreate.bind(this)
-              }
-            };
+        this.axios = this.client;
+        this.api = createApiNamespace(this.client);
+        this.get = createGetNamespace(this.client);
+        this.getSpecialChars = createGetSpecialCharsNamespace(this.client);
+        this.namespace = createNamespaceNamespace(this.client);
     }
 
     /**
@@ -42,9 +39,7 @@ export class APIClient {
      *
      * @operationId getUsers
      *
-     * @param params Parameters object containing query parameters
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - Successful response
+     * @returns Successful response
      */
     public async getUsers(params?: GetUsersParams, config?: AxiosRequestConfig): Promise<AxiosResponse<{ data?: Array<User>; pagination?: Pagination; meta?: { total?: number; filtered?: number } }>> {
         const queryParams = { page: params?.page, limit: params?.limit, sort: params?.sort, order: params?.order, filter: params?.filter };
@@ -58,9 +53,7 @@ export class APIClient {
      *
      * @operationId createUser
      *
-     * @param data Request body
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - User created successfully
+     * @returns User created successfully
      */
     public async createUser(data: CreateUserRequest, config?: AxiosRequestConfig): Promise<AxiosResponse<User>> {
         return this.client.post(`/users`, data, config);
@@ -73,8 +66,7 @@ export class APIClient {
      *
      * @operationId getUserById
      *
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - User found
+     * @returns User found
      */
     public async getUserById(config?: AxiosRequestConfig): Promise<AxiosResponse<User>> {
         return this.client.get(`/users/{userId}`, config);
@@ -87,9 +79,7 @@ export class APIClient {
      *
      * @operationId updateUser
      *
-     * @param data Request body
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - User updated successfully
+     * @returns User updated successfully
      */
     public async updateUser(data: UpdateUserRequest, config?: AxiosRequestConfig): Promise<AxiosResponse<User>> {
         return this.client.put(`/users/{userId}`, data, config);
@@ -102,9 +92,7 @@ export class APIClient {
      *
      * @operationId patchUser
      *
-     * @param data Request body
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - User updated successfully
+     * @returns User updated successfully
      */
     public async patchUser(data: PatchUserRequest, config?: AxiosRequestConfig): Promise<AxiosResponse<User>> {
         return this.client.patch(`/users/{userId}`, data, config);
@@ -117,8 +105,7 @@ export class APIClient {
      *
      * @operationId deleteUser
      *
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - User deleted successfully
+     * @returns User deleted successfully
      */
     public async deleteUser(config?: AxiosRequestConfig): Promise<AxiosResponse<void>> {
         return this.client.delete(`/users/{userId}`, config);
@@ -131,9 +118,7 @@ export class APIClient {
      *
      * @operationId searchContent
      *
-     * @param params Parameters object containing query parameters
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - Search results
+     * @returns Search results
      */
     public async searchContent(params: SearchContentParams, config?: AxiosRequestConfig): Promise<AxiosResponse<SearchResults>> {
         const queryParams = { q: params.q, type: params?.type, date_from: params?.date_from, date_to: params?.date_to, tags: params?.tags, context: params?.context };
@@ -147,11 +132,9 @@ export class APIClient {
      *
      * @operationId uploadFile
      *
-     * @param data Request body
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - File uploaded successfully
+     * @returns File uploaded successfully
      */
-    public async uploadFile(data: { file: string; description?: string; tags?: Array<string> }, config?: AxiosRequestConfig): Promise<AxiosResponse<FileInfo>> {
+    public async uploadFile(data: UploadFileData, config?: AxiosRequestConfig): Promise<AxiosResponse<FileInfo>> {
         return this.client.post(`/upload`, data, config);
     }
 
@@ -162,11 +145,9 @@ export class APIClient {
      *
      * @operationId uploadMultipleFiles
      *
-     * @param data Request body
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - Files uploaded successfully
+     * @returns Files uploaded successfully
      */
-    public async uploadMultipleFiles(data: { files: Array<string>; metadata?: string }, config?: AxiosRequestConfig): Promise<AxiosResponse<Array<FileInfo>>> {
+    public async uploadMultipleFiles(data: UploadMultipleFilesData, config?: AxiosRequestConfig): Promise<AxiosResponse<Array<FileInfo>>> {
         return this.client.post(`/upload/multiple`, data, config);
     }
 
@@ -177,9 +158,7 @@ export class APIClient {
      *
      * @operationId exportData
      *
-     * @param params Parameters object containing query parameters
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - Data export
+     * @returns Data export
      */
     public async exportData(params: ExportDataParams, config?: AxiosRequestConfig): Promise<AxiosResponse<ExportData>> {
         const queryParams = { format: params.format, include_metadata: params?.include_metadata };
@@ -193,8 +172,7 @@ export class APIClient {
      *
      * @operationId getWebhooks
      *
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - List of webhooks
+     * @returns List of webhooks
      */
     public async getWebhooks(config?: AxiosRequestConfig): Promise<AxiosResponse<Array<Webhook>>> {
         return this.client.get(`/webhooks`, config);
@@ -207,26 +185,10 @@ export class APIClient {
      *
      * @operationId createWebhook
      *
-     * @param data Request body
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - Webhook created
+     * @returns Webhook created
      */
     public async createWebhook(data: CreateWebhookRequest, config?: AxiosRequestConfig): Promise<AxiosResponse<Webhook>> {
         return this.client.post(`/webhooks`, data, config);
-    }
-
-    /**
-     * Special characters in operationId
-     *
-     * Test operationId with hyphens, underscores, and dots
-     *
-     * @operationId get-special_chars.endpoint
-     *
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - Success
-     */
-    public async getSpecialCharsEndpoint(config?: AxiosRequestConfig): Promise<AxiosResponse<void>> {
-        return this.client.get(`/special-chars`, config);
     }
 
     /**
@@ -236,8 +198,7 @@ export class APIClient {
      *
      * @operationId get123Numbers456
      *
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - Success
+     * @returns Success
      */
     public async get123Numbers456(config?: AxiosRequestConfig): Promise<AxiosResponse<void>> {
         return this.client.get(`/numbers123`, config);
@@ -250,10 +211,9 @@ export class APIClient {
      *
      * @operationId getNotifications
      *
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - List of notifications
+     * @returns List of notifications
      */
-    public async getNotifications(config?: AxiosRequestConfig): Promise<AxiosResponse<Array<(EmailNotification & { type: "email" }) | (PushNotification & { type: "push" }) | (SMSNotification & { type: "sms" })>>> {
+    public async getNotifications(config?: AxiosRequestConfig): Promise<AxiosResponse<Array<unknown>>> {
         return this.client.get(`/notifications`, config);
     }
 
@@ -264,11 +224,38 @@ export class APIClient {
      *
      * @operationId getCategories
      *
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - Category tree
+     * @returns Category tree
      */
     public async getCategories(config?: AxiosRequestConfig): Promise<AxiosResponse<Array<Category>>> {
         return this.client.get(`/categories`, config);
+    }
+
+    /**
+     * Create or log an event
+     *
+     * Create a new event with optional metadata in the request body
+     *
+     * @operationId createEvent
+     *
+     * @returns Event created successfully
+     */
+    public async createEvent(params?: CreateEventParams, data?: EventMetadata, config?: AxiosRequestConfig): Promise<AxiosResponse<Event>> {
+        const queryParams = { source: params?.source };
+        return this.client.post(`/events`, data, { params: queryParams, ...config });
+    }
+
+    /**
+     * Delete events
+     *
+     * Delete events with optional filtering parameter and optional body
+     *
+     * @operationId deleteEvents
+     *
+     * @returns Events deleted successfully
+     */
+    public async deleteEvents(params?: DeleteEventsParams, data?: DeleteEventsRequest, config?: AxiosRequestConfig): Promise<AxiosResponse<void>> {
+        const queryParams = { filter: params?.filter };
+        return this.client.delete(`/events`, { params: queryParams, data: data, ...config });
     }
 
     /**
@@ -278,65 +265,21 @@ export class APIClient {
      *
      * @operationId getAnalyticsReport
      *
-     * @param params Parameters object containing query parameters
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - Analytics report
+     * @returns Analytics report
      */
     public async getAnalyticsReport(params: GetAnalyticsReportParams, config?: AxiosRequestConfig): Promise<AxiosResponse<AnalyticsReport>> {
         const queryParams = { metrics: params.metrics, dimensions: params?.dimensions, filters: params?.filters, period: params.period };
         return this.client.get(`/analytics/reports`, { params: queryParams, ...config });
     }
 
-    /** get_ namespace operations */
-    public readonly get_: Get_Operations;
-
-    /**
-     * Health check
-     *
-     * Check API health status
-     *
-     * @operationId get_/health
-     *
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - API is healthy
-     */
-    private async get__getHealth(config?: AxiosRequestConfig): Promise<AxiosResponse<HealthStatus>> {
-        return this.client.get(`/health`, config);
-    }
-
     /** api namespace operations */
     public readonly api: ApiOperations;
-
-    /**
-     * Get resources with slash in operationId
-     *
-     * Test operationId containing forward slashes
-     *
-     * @operationId api/v1/getResources
-     *
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - Resources list
-     */
-    private async api_v1_v1GetResources(config?: AxiosRequestConfig): Promise<AxiosResponse<Array<Record<string, unknown>>>> {
-        return this.client.get(`/api/v1/resources`, config);
-    }
-
+    /** get_ namespace operations */
+    public readonly get: GetOperations;
+    /** get-special_chars namespace operations */
+    public readonly getSpecialChars: GetSpecialCharsOperations;
     /** namespace namespace operations */
     public readonly namespace: NamespaceOperations;
-
-    /**
-     * Namespaced action
-     *
-     * Test deeply nested operationId with multiple slashes
-     *
-     * @operationId namespace/action/create
-     *
-     * @param config Optional axios request configuration
-     * @returns Promise with response data - Action created
-     */
-    private async namespace_action_actionCreate(config?: AxiosRequestConfig): Promise<AxiosResponse<void>> {
-        return this.client.post(`/namespaced/action`, undefined, config);
-    }
 }
 
 export interface GetUsersParams {
@@ -362,9 +305,48 @@ export interface SearchContentParams {
     /** Query parameter */
     date_to?: string;
     /** Query parameter */
-    tags?: Array<string>;
+    tags?: Array<"users" | "posts" | "comments" | "products">;
     /** Search context (query parameter) */
     context?: "web" | "mobile" | "api";
+}
+
+/**
+ * UploadFileData property
+ * Type: object
+ */
+export interface UploadFileData {
+    /**
+     * file property
+     * Type: string, Format: binary
+     */
+    file: string;
+    /**
+     * description property
+     * Type: string, Max length: 500
+     */
+    description?: string;
+    /**
+     * tags property
+     * Type: array
+     */
+    tags?: Array<string>;
+}
+
+/**
+ * UploadMultipleFilesData property
+ * Type: object
+ */
+export interface UploadMultipleFilesData {
+    /**
+     * files property
+     * Type: array, Max items: 10
+     */
+    files: Array<string>;
+    /**
+     * metadata property
+     * Type: string, Format: json
+     */
+    metadata?: string;
 }
 
 export interface ExportDataParams {
@@ -374,43 +356,23 @@ export interface ExportDataParams {
     include_metadata?: boolean;
 }
 
+export interface CreateEventParams {
+    /** Event source (query parameter) */
+    source?: "web" | "mobile" | "api";
+}
+
+export interface DeleteEventsParams {
+    /** Filter which events to delete (optional - if not provided, deletes all events) (query parameter) */
+    filter?: "all" | "old" | "recent";
+}
+
 export interface GetAnalyticsReportParams {
     /** Query parameter */
-    metrics: Array<"views" | "clicks" | "conversions" | "revenue">;
+    metrics: Array<"users" | "posts" | "comments" | "products">;
     /** Query parameter */
-    dimensions?: Array<"date" | "country" | "device" | "source">;
+    dimensions?: Array<"users" | "posts" | "comments" | "products">;
     /** Query parameter */
-    filters?: Record<string, (string | Array<string>)>;
+    filters?: Record<string, unknown>;
     /** Query parameter */
     period: DateRange;
-}
-
-/** get_ namespace operations */
-export interface Get_Operations {
-    /** Health check */
-    getHealth(config?: AxiosRequestConfig): Promise<AxiosResponse<HealthStatus>>;
-}
-
-/** api namespace operations */
-export interface ApiOperations {
-    /** v1 sub-namespace */
-    readonly v1: ApiV1Operations;
-}
-
-/** api/v1 namespace operations */
-export interface ApiV1Operations {
-    /** Get resources with slash in operationId */
-    v1GetResources(config?: AxiosRequestConfig): Promise<AxiosResponse<Array<Record<string, unknown>>>>;
-}
-
-/** namespace namespace operations */
-export interface NamespaceOperations {
-    /** action sub-namespace */
-    readonly action: NamespaceActionOperations;
-}
-
-/** namespace/action namespace operations */
-export interface NamespaceActionOperations {
-    /** Namespaced action */
-    actionCreate(config?: AxiosRequestConfig): Promise<AxiosResponse<void>>;
 }

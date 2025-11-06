@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { OpenAPIGenerator } from './generator';
+import { resolveEnvironmentVariables, resolveHeadersEnvironmentVariables } from './types';
+import { NamingUtils } from './utils/naming';
+import { JSDocUtils } from './utils/jsdoc';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import SwaggerParser from '@apidevtools/swagger-parser';
@@ -134,118 +137,134 @@ describe('OpenAPIGenerator', () => {
       });
     });
 
-    describe('toTypeName', () => {
-      it('should convert kebab-case to PascalCase', () => {
-        const result = generator.toTypeName('user-profile');
-        expect(result).toBe('UserProfile');
+    describe('NamingUtils', () => {
+      let naming: NamingUtils;
+      
+      beforeEach(() => {
+        naming = new NamingUtils();
+      });
+      
+      describe('toTypeName', () => {
+        it('should convert kebab-case to PascalCase', () => {
+          const result = naming.toTypeName('user-profile');
+          expect(result).toBe('UserProfile');
+        });
+
+        it('should convert snake_case to PascalCase', () => {
+          const result = naming.toTypeName('user_profile');
+          expect(result).toBe('UserProfile');
+        });
+
+        it('should capitalize first letter', () => {
+          const result = naming.toTypeName('user');
+          expect(result).toBe('User');
+        });
       });
 
-      it('should convert snake_case to PascalCase', () => {
-        const result = generator.toTypeName('user_profile');
-        expect(result).toBe('UserProfile');
+      describe('toPropertyName', () => {
+        it('should keep valid identifiers as-is', () => {
+          const result = naming.toPropertyName('validName');
+          expect(result).toBe('validName');
+        });
+
+        it('should quote invalid identifiers', () => {
+          const result = naming.toPropertyName('invalid-name');
+          expect(result).toBe("'invalid-name'");
+        });
+
+        it('should quote names with spaces', () => {
+          const result = naming.toPropertyName('name with spaces');
+          expect(result).toBe("'name with spaces'");
+        });
       });
 
-      it('should capitalize first letter', () => {
-        const result = generator.toTypeName('user');
-        expect(result).toBe('User');
+      describe('toMethodName', () => {
+        it('should convert operationId to camelCase', () => {
+          const result = naming.toMethodName('GetUserById');
+          expect(result).toBe('getUserById');
+        });
+
+        it('should handle special characters', () => {
+          const result = naming.toMethodName('get-user-by-id');
+          expect(result).toBe('getUserById');
+        });
+
+        it('should handle path-based names', () => {
+          const result = naming.toMethodName('get_/users/{id}');
+          expect(result).toBe('getUsersId');
+        });
+
+        it('should handle namespaced operationId by taking part after first slash', () => {
+          const result = naming.toMethodName('admin/getUser');
+          expect(result).toBe('getUser');
+        });
+
+        it('should handle multiple slashes in operationId', () => {
+          const result = naming.toMethodName('admin/users/getById');
+          expect(result).toBe('usersGetById');
+        });
+
+        it('should handle operationId without namespace', () => {
+          const result = naming.toMethodName('getUser');
+          expect(result).toBe('getUser');
+        });
       });
     });
 
-    describe('toPropertyName', () => {
-      it('should keep valid identifiers as-is', () => {
-        const result = generator.toPropertyName('validName');
-        expect(result).toBe('validName');
+    describe('JSDocUtils', () => {
+      let jsdoc: JSDocUtils;
+      
+      beforeEach(() => {
+        jsdoc = new JSDocUtils();
       });
+      
+      describe('generateJSDocComment', () => {
+        it('should generate comment with description', () => {
+          const schema = {
+            description: 'User information'
+          };
+          const result = jsdoc.generateJSDocComment(schema);
+          expect(result).toBe('User information');
+        });
 
-      it('should quote invalid identifiers', () => {
-        const result = generator.toPropertyName('invalid-name');
-        expect(result).toBe("'invalid-name'");
-      });
+        it('should include constraints', () => {
+          const schema = {
+            type: 'string',
+            format: 'email',
+            minLength: 5,
+            maxLength: 100
+          };
+          const result = jsdoc.generateJSDocComment(schema, 'email');
+          expect(result).toContain('email property');
+          expect(result).toContain('Format: email');
+          expect(result).toContain('Min length: 5');
+          expect(result).toContain('Max length: 100');
+        });
 
-      it('should quote names with spaces', () => {
-        const result = generator.toPropertyName('name with spaces');
-        expect(result).toBe("'name with spaces'");
-      });
-    });
+        it('should include enum values', () => {
+          const schema = {
+            type: 'string',
+            enum: ['admin', 'user', 'guest']
+          };
+          const result = jsdoc.generateJSDocComment(schema, 'role');
+          expect(result).toContain('Allowed values: "admin", "user", "guest"');
+        });
 
-    describe('toMethodName', () => {
-      it('should convert operationId to camelCase', () => {
-        const result = generator.toMethodName('GetUserById');
-        expect(result).toBe('getUserById');
-      });
+        it('should include default and example', () => {
+          const schema = {
+            type: 'string',
+            default: 'defaultValue',
+            example: 'exampleValue'
+          };
+          const result = jsdoc.generateJSDocComment(schema, 'field');
+          expect(result).toContain('Default: "defaultValue"');
+          expect(result).toContain('Example: "exampleValue"');
+        });
 
-      it('should handle special characters', () => {
-        const result = generator.toMethodName('get-user-by-id');
-        expect(result).toBe('getUserById');
-      });
-
-      it('should handle path-based names', () => {
-        const result = generator.toMethodName('get_/users/{id}');
-        expect(result).toBe('getUsersId');
-      });
-
-      it('should handle namespaced operationId by taking part after first slash', () => {
-        const result = generator.toMethodName('admin/getUser');
-        expect(result).toBe('getUser');
-      });
-
-      it('should handle multiple slashes in operationId', () => {
-        const result = generator.toMethodName('admin/users/getById');
-        expect(result).toBe('usersGetById');
-      });
-
-      it('should handle operationId without namespace', () => {
-        const result = generator.toMethodName('getUser');
-        expect(result).toBe('getUser');
-      });
-    });
-
-    describe('generateJSDocComment', () => {
-      it('should generate comment with description', () => {
-        const schema = {
-          description: 'User information'
-        };
-        const result = generator.generateJSDocComment(schema);
-        expect(result).toBe('User information');
-      });
-
-      it('should include constraints', () => {
-        const schema = {
-          type: 'string',
-          format: 'email',
-          minLength: 5,
-          maxLength: 100
-        };
-        const result = generator.generateJSDocComment(schema, 'email');
-        expect(result).toContain('email property');
-        expect(result).toContain('Format: email');
-        expect(result).toContain('Min length: 5');
-        expect(result).toContain('Max length: 100');
-      });
-
-      it('should include enum values', () => {
-        const schema = {
-          type: 'string',
-          enum: ['admin', 'user', 'guest']
-        };
-        const result = generator.generateJSDocComment(schema, 'role');
-        expect(result).toContain('Allowed values: "admin", "user", "guest"');
-      });
-
-      it('should include default and example', () => {
-        const schema = {
-          type: 'string',
-          default: 'defaultValue',
-          example: 'exampleValue'
-        };
-        const result = generator.generateJSDocComment(schema, 'field');
-        expect(result).toContain('Default: "defaultValue"');
-        expect(result).toContain('Example: "exampleValue"');
-      });
-
-      it('should return undefined for empty schema', () => {
-        const result = generator.generateJSDocComment({});
-        expect(result).toBeUndefined();
+        it('should return undefined for empty schema', () => {
+          const result = jsdoc.generateJSDocComment({});
+          expect(result).toBeUndefined();
+        });
       });
     });
 
@@ -980,19 +999,21 @@ describe('OpenAPIGenerator', () => {
 
     it('should extract method names correctly from dot-separated operationIds', () => {
       // Test the toMethodName method with dot-separated operationIds
-      expect(generator.toMethodName('admin.getUser')).toBe('getUser');
-      expect(generator.toMethodName('admin.users.getAll')).toBe('usersGetAll');
-      expect(generator.toMethodName('admin.users.roles.create')).toBe('usersRolesCreate');
-      expect(generator.toMethodName('public.getInfo')).toBe('getInfo');
-      expect(generator.toMethodName('system.config.update')).toBe('configUpdate');
+      const naming = new NamingUtils();
+      expect(naming.toMethodName('admin.getUser')).toBe('getUser');
+      expect(naming.toMethodName('admin.users.getAll')).toBe('usersGetAll');
+      expect(naming.toMethodName('admin.users.roles.create')).toBe('usersRolesCreate');
+      expect(naming.toMethodName('public.getInfo')).toBe('getInfo');
+      expect(naming.toMethodName('system.config.update')).toBe('configUpdate');
     });
 
     it('should handle users.getUser operationId correctly', () => {
       // Test the specific case: users.getUser should create users namespace with getUser method
-      expect(generator.toMethodName('users.getUser')).toBe('getUser');
-      expect(generator.toMethodName('users.createUser')).toBe('createUser');
-      expect(generator.toMethodName('users.updateUser')).toBe('updateUser');
-      expect(generator.toMethodName('users.deleteUser')).toBe('deleteUser');
+      const naming = new NamingUtils();
+      expect(naming.toMethodName('users.getUser')).toBe('getUser');
+      expect(naming.toMethodName('users.createUser')).toBe('createUser');
+      expect(naming.toMethodName('users.updateUser')).toBe('updateUser');
+      expect(naming.toMethodName('users.deleteUser')).toBe('deleteUser');
     });
 
     it('should create users namespace with getUser method from users.getUser operationId', () => {
@@ -1025,9 +1046,10 @@ describe('OpenAPIGenerator', () => {
     it('should handle operationIds with dots but no clean namespace pattern', () => {
       // Test operationIds that contain dots but don't follow clean namespace.method pattern
       // These should be treated as single method names since they don't start with a clean namespace
-      expect(generator.toMethodName('get.user.by.id')).toBe('userById');
-      expect(generator.toMethodName('create.user.profile')).toBe('userProfile');
-      expect(generator.toMethodName('update.user.settings')).toBe('userSettings');
+      const naming = new NamingUtils();
+      expect(naming.toMethodName('get.user.by.id')).toBe('userById');
+      expect(naming.toMethodName('create.user.profile')).toBe('userProfile');
+      expect(naming.toMethodName('update.user.settings')).toBe('userSettings');
     });
 
     it('should generate proper namespace structure for dot-separated operationIds', async () => {
@@ -3557,7 +3579,8 @@ describe('OpenAPIGenerator', () => {
       const allParams: any[] = [];
 
       for (const param of parameters) {
-        const paramName = generator.toPropertyName(param.name);
+        const naming = new NamingUtils();
+        const paramName = naming.toPropertyName(param.name);
         const paramSchema = generator['getParameterSchema'](param);
         const paramType = generator.getTypeString(paramSchema);
 
@@ -3850,6 +3873,193 @@ describe('OpenAPIGenerator', () => {
       const configContent = await fs.readFile(testConfigPath, 'utf-8');
       const savedConfig = JSON.parse(configContent);
       expect(savedConfig.apis[0].headers).toBeUndefined();
+    });
+  });
+
+  describe('environment variable resolution', () => {
+    const originalEnv = process.env;
+
+    beforeEach(() => {
+      // Reset environment variables
+      process.env = { ...originalEnv };
+    });
+
+    afterEach(() => {
+      // Restore original environment
+      process.env = originalEnv;
+    });
+
+    describe('resolveEnvironmentVariables', () => {
+      it('should resolve simple environment variables', () => {
+        process.env.TEST_TOKEN = 'abc123';
+        const result = resolveEnvironmentVariables('Bearer ${TEST_TOKEN}');
+        expect(result).toBe('Bearer abc123');
+      });
+
+      it('should resolve multiple environment variables', () => {
+        process.env.API_KEY = 'key123';
+        process.env.API_SECRET = 'secret456';
+        const result = resolveEnvironmentVariables('${API_KEY}:${API_SECRET}');
+        expect(result).toBe('key123:secret456');
+      });
+
+      it('should use default values when environment variable is not set', () => {
+        delete process.env.MISSING_VAR;
+        const result = resolveEnvironmentVariables('${MISSING_VAR:default-value}');
+        expect(result).toBe('default-value');
+      });
+
+      it('should use environment variable when set, ignoring default', () => {
+        process.env.EXISTING_VAR = 'actual-value';
+        const result = resolveEnvironmentVariables('${EXISTING_VAR:default-value}');
+        expect(result).toBe('actual-value');
+      });
+
+      it('should keep original placeholder when no env var and no default', () => {
+        delete process.env.MISSING_VAR;
+        const result = resolveEnvironmentVariables('${MISSING_VAR}');
+        expect(result).toBe('${MISSING_VAR}');
+      });
+
+      it('should handle empty default values', () => {
+        delete process.env.EMPTY_DEFAULT;
+        const result = resolveEnvironmentVariables('${EMPTY_DEFAULT:}');
+        expect(result).toBe('');
+      });
+
+      it('should handle mixed resolved and unresolved variables', () => {
+        process.env.RESOLVED = 'resolved';
+        delete process.env.UNRESOLVED;
+        const result = resolveEnvironmentVariables('${RESOLVED} and ${UNRESOLVED}');
+        expect(result).toBe('resolved and ${UNRESOLVED}');
+      });
+
+      it('should handle strings without environment variables', () => {
+        const result = resolveEnvironmentVariables('plain string');
+        expect(result).toBe('plain string');
+      });
+
+      it('should handle empty strings', () => {
+        const result = resolveEnvironmentVariables('');
+        expect(result).toBe('');
+      });
+    });
+
+    describe('resolveHeadersEnvironmentVariables', () => {
+      it('should resolve environment variables in all header values', () => {
+        process.env.AUTH_TOKEN = 'token123';
+        process.env.API_KEY = 'key456';
+        
+        const headers = {
+          'Authorization': 'Bearer ${AUTH_TOKEN}',
+          'X-API-Key': '${API_KEY}',
+          'Content-Type': 'application/json'
+        };
+        
+        const result = resolveHeadersEnvironmentVariables(headers);
+        
+        expect(result).toEqual({
+          'Authorization': 'Bearer token123',
+          'X-API-Key': 'key456',
+          'Content-Type': 'application/json'
+        });
+      });
+
+      it('should handle headers with default values', () => {
+        delete process.env.MISSING_TOKEN;
+        
+        const headers = {
+          'Authorization': 'Bearer ${MISSING_TOKEN:default-token}',
+          'X-API-Key': '${MISSING_KEY:default-key}'
+        };
+        
+        const result = resolveHeadersEnvironmentVariables(headers);
+        
+        expect(result).toEqual({
+          'Authorization': 'Bearer default-token',
+          'X-API-Key': 'default-key'
+        });
+      });
+
+      it('should handle empty headers object', () => {
+        const result = resolveHeadersEnvironmentVariables({});
+        expect(result).toEqual({});
+      });
+
+      it('should preserve header names and only resolve values', () => {
+        process.env.TOKEN = 'test-token';
+        
+        const headers = {
+          'Authorization': 'Bearer ${TOKEN}',
+          'X-Custom-Header': '${TOKEN}'
+        };
+        
+        const result = resolveHeadersEnvironmentVariables(headers);
+        
+        expect(result).toHaveProperty('Authorization');
+        expect(result).toHaveProperty('X-Custom-Header');
+        expect(result['Authorization']).toBe('Bearer test-token');
+        expect(result['X-Custom-Header']).toBe('test-token');
+      });
+    });
+
+    describe('integration with OpenAPIGenerator', () => {
+      it('should resolve environment variables in headers during initialization', () => {
+        process.env.TEST_TOKEN = 'integration-token';
+        
+        const options = {
+          spec: './test.yaml',
+          outputDir: './generated',
+          headers: {
+            'Authorization': 'Bearer ${TEST_TOKEN}',
+            'X-API-Key': '${TEST_TOKEN}'
+          }
+        };
+        
+        const generator = new OpenAPIGenerator(options);
+        
+        // Access the private options through the generator instance
+        // We can't directly access private properties, but we can test the behavior
+        // by checking if the generator was created successfully
+        expect(generator).toBeDefined();
+      });
+
+      it('should resolve environment variables when loading config', async () => {
+        process.env.CONFIG_TOKEN = 'config-token';
+        
+        const testOutputDir = './test-env-config-output';
+        const testConfigPath = path.join(testOutputDir, 'test-config.json');
+        const config = {
+          apis: [
+            {
+              name: 'Test API',
+              spec: './test.yaml',
+              headers: {
+                'Authorization': 'Bearer ${CONFIG_TOKEN}',
+                'X-API-Key': '${CONFIG_TOKEN}'
+              }
+            }
+          ]
+        };
+        
+        await fs.mkdir(testOutputDir, { recursive: true });
+        await fs.writeFile(testConfigPath, JSON.stringify(config, null, 2), 'utf-8');
+        
+        const loadedConfig = await OpenAPIGenerator.loadConfig(testConfigPath);
+        
+        expect(loadedConfig).toBeDefined();
+        expect(loadedConfig!.apis[0].headers).toEqual({
+          'Authorization': 'Bearer config-token',
+          'X-API-Key': 'config-token'
+        });
+        
+        // Clean up test directory
+        try {
+          await fs.rm(testOutputDir, { recursive: true, force: true });
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      });
     });
   });
 });

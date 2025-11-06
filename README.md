@@ -259,7 +259,7 @@ The generated `.ott.json` file contains:
       "axiosInstance": "apiClient",
       "typeOutput": "single-file",
       "headers": {
-        "Authorization": "Bearer your-token"
+        "Authorization": "Bearer ${API_TOKEN}"
       },
       "operationIds": [
         "getUsers",
@@ -341,6 +341,11 @@ openapi-to-ts generate https://api.example.com/openapi.json \
   -H "Authorization: Bearer your-token" \
   -H "X-API-Key: your-api-key"
 
+# Generate with environment variable headers
+openapi-to-ts generate https://api.example.com/openapi.json \
+  -H "Authorization: Bearer ${API_TOKEN}" \
+  -H "X-API-Key: ${API_KEY:default-key}"
+
 # Custom output directory and namespace
 openapi-to-ts generate api.yaml -o ./src/api -n GitHubAPI
 
@@ -365,6 +370,61 @@ openapi-to-ts info https://api.example.com/openapi.json
 openapi-to-ts examples
 openapi-to-ts --help
 ```
+
+### Environment Variables in Headers
+
+You can use environment variables in header values to keep sensitive information out of your configuration files and command history. This is especially useful for API keys, tokens, and other credentials.
+
+#### Syntax
+
+- `${VAR_NAME}` - Use the value of the environment variable `VAR_NAME`
+- `${VAR_NAME:default_value}` - Use the environment variable `VAR_NAME`, or `default_value` if not set
+- `${VAR_NAME:}` - Use the environment variable `VAR_NAME`, or empty string if not set
+
+#### Examples
+
+```bash
+# Set environment variables
+export API_TOKEN="your-secret-token"
+export API_KEY="your-api-key"
+
+# Use in CLI commands
+openapi-to-ts generate https://api.example.com/openapi.json \
+  -H "Authorization: Bearer ${API_TOKEN}" \
+  -H "X-API-Key: ${API_KEY}"
+
+# With default values
+openapi-to-ts generate https://api.example.com/openapi.json \
+  -H "Authorization: Bearer ${API_TOKEN:guest}" \
+  -H "X-API-Key: ${API_KEY:demo-key}"
+```
+
+#### Configuration Files
+
+Environment variables also work in `.ott.json` configuration files:
+
+```json
+{
+  "apis": [
+    {
+      "name": "MyAPI",
+      "spec": "https://api.example.com/openapi.json",
+      "headers": {
+        "Authorization": "Bearer ${API_TOKEN}",
+        "X-API-Key": "${API_KEY:default-key}",
+        "X-Environment": "${ENV:development}"
+      }
+    }
+  ]
+}
+```
+
+#### Security Best Practices
+
+- Never commit environment variables to version control
+- Use `.env` files for local development (not supported by this tool, use your shell or process manager)
+- Use default values for non-sensitive configuration
+- Keep sensitive tokens in secure environment variable management systems
 
 ### Type Output Modes
 
@@ -394,8 +454,8 @@ await generateFromSpec({
   axiosInstanceName: 'githubClient',
   typeOutputMode: TypeOutputMode.FilePerType,
   headers: {
-    'Authorization': 'Bearer your-token',
-    'X-API-Key': 'your-api-key'
+    'Authorization': 'Bearer ${API_TOKEN}',
+    'X-API-Key': '${API_KEY:default-key}'
   },
   operationIds: ['getUsers', 'createUser', 'updateUser']
 });

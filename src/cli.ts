@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { generateFromSpec, TypeOutputMode, OpenAPIGenerator, OTTConfig, APIConfig } from './index.js';
+import { generateFromSpec, TypeOutputMode, OpenAPIGenerator, OTTConfig, APIConfig, resolveHeadersEnvironmentVariables } from './index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -62,10 +62,13 @@ program
           headers[name] = value;
         }
       }
+      
+      // Resolve environment variables in headers
+      const resolvedHeaders = Object.keys(headers).length > 0 ? resolveHeadersEnvironmentVariables(headers) : undefined;
 
       console.log(`📄 Input spec: ${spec}`);
-      if (specIsUrl && Object.keys(headers).length > 0) {
-        console.log(`🔑 Headers: ${Object.keys(headers).join(', ')} (${Object.keys(headers).length} header(s))`);
+      if (specIsUrl && Object.keys(resolvedHeaders || {}).length > 0) {
+        console.log(`🔑 Headers: ${Object.keys(resolvedHeaders || {}).join(', ')} (${Object.keys(resolvedHeaders || {}).length} header(s))`);
       }
       console.log(`📁 Output directory: ${path.resolve(options.output)}`);
       console.log(`⚙️  Config file: ${options.config}\n`);
@@ -74,7 +77,7 @@ program
         spec,
         options.output,
         options.config,
-        headers
+        resolvedHeaders
       );
 
       console.log('✅ Configuration file created successfully!');
@@ -179,6 +182,7 @@ program
   .option('--api <name>', 'API name to generate from config (if multiple APIs in config)')
   .option('--operation-ids <ids>', 'Comma-separated list of operation IDs to include', [])
   .option('--dry-run', 'Show what would be generated without writing files')
+  .option('--no-progress', 'Disable progress messages')
   .action(async (spec: string, options) => {
     try {
       console.log('🚀 OpenAPI TypeScript Generator');
@@ -329,7 +333,9 @@ program
           headers[name] = value;
         }
       }
-
+      
+      // Resolve environment variables in headers
+      const resolvedHeaders = Object.keys(headers).length > 0 ? resolveHeadersEnvironmentVariables(headers) : undefined;
 
       // Determine final configuration values
       let finalSpec: string;
@@ -381,12 +387,12 @@ program
         finalNamespace = options.namespace;
         finalAxiosInstance = options.axiosInstance;
         finalTypeOutputMode = typeOutputModeMap[options.typeOutput];
-        finalHeaders = headers;
+        finalHeaders = resolvedHeaders || {};
         finalOperationIds = cliOperationIds.length > 0 ? cliOperationIds : undefined;
 
         console.log(`📄 Input spec: ${finalSpec}`);
-        if (specIsUrl && Object.keys(headers).length > 0) {
-          console.log(`🔑 Headers: ${Object.keys(headers).join(', ')} (${Object.keys(headers).length} header(s))`);
+        if (specIsUrl && Object.keys(resolvedHeaders || {}).length > 0) {
+          console.log(`🔑 Headers: ${Object.keys(resolvedHeaders || {}).join(', ')} (${Object.keys(resolvedHeaders || {}).length} header(s))`);
         }
         console.log(`📁 Output directory: ${finalOutputDir}`);
         console.log(`🏷️  Namespace: ${finalNamespace}`);
@@ -526,7 +532,8 @@ program
           axiosInstanceName: currentAxiosInstance,
           typeOutputMode: currentTypeOutputMode,
           headers: Object.keys(currentHeaders).length > 0 ? currentHeaders : undefined,
-          operationIds: currentOperationIds
+          operationIds: currentOperationIds,
+          noProgress: options.noProgress || false
         });
         
         if (apisToGenerate.length > 1) {
@@ -599,7 +606,15 @@ program
           apisToGenerate[0].output || './generated' : 
           path.resolve(path.dirname(configPath), apisToGenerate[0].output || './generated')) :
         finalOutputDir!;
-      console.log(`import { createClient } from '${path.relative(process.cwd(), firstApiOutput)}';`);
+      const outputDirPath = path.relative(process.cwd(), firstApiOutput);
+      // Use .js extension for ESM imports (required even when importing from TypeScript files)
+      // Normalize path separators and ensure it starts with ./ for relative imports
+      const normalizedPath = outputDirPath === '.' ? './index.js' : 
+        outputDirPath.startsWith('.') ? `${outputDirPath}/index.js` : 
+        `./${outputDirPath}/index.js`;
+      // Replace backslashes with forward slashes for cross-platform compatibility (ESM always uses /)
+      const importPath = normalizedPath.replace(/\\/g, '/');
+      console.log(`import { createClient } from '${importPath}';`);
       console.log('');
       console.log('const client = createClient("https://api.example.com");');
       console.log('const response = await client.someMethod();');
