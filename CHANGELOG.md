@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.16
+
+### Patch Changes
+
+- 53559b2: optimize and fix data argument for deletes
+
 ## 0.0.15
 
 ### Patch Changes
