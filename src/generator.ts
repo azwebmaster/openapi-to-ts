@@ -86,25 +86,7 @@ export class OpenAPIGenerator {
     }
 
     this.progress.message('📄 Parsing OpenAPI specification...');
-    // OPTIMIZATION: Try to dereference the spec upfront to eliminate all $ref resolution during generation
-    // This is faster than resolving references on-demand because:
-    // 1. We process the entire spec anyway (need all operations/types)
-    // 2. Eliminates 44+ $ref checks during generation
-    // 3. SwaggerParser.dereference() is optimized for this operation
-    // Fall back to parse() if dereference fails (e.g., missing external refs)
-    try {
-      this.api = await SwaggerParser.dereference(specInput as any) as OpenAPIDocument;
-    } catch (error: any) {
-      // If dereference fails (e.g., external refs that don't exist), fall back to parse()
-      // This maintains backwards compatibility while still optimizing when possible
-      if (error.code === 'ENOENT' || error.message?.includes('ENOENT') || error.message?.includes('no such file')) {
-        this.progress.message('⚠️  Could not dereference spec (missing external refs), using parse() instead...');
-        this.api = await SwaggerParser.parse(specInput as any) as OpenAPIDocument;
-      } else {
-        // Re-throw if it's a different error (validation, etc.)
-        throw error;
-      }
-    }
+    this.api = await SwaggerParser.parse(specInput as any) as OpenAPIDocument; 
 
     // Filter operations based on configuration
     this.filterOperationsByConfig();
@@ -123,7 +105,7 @@ export class OpenAPIGenerator {
     
     this.progress.message('🔨 Generating index...');
     await this.generateIndex();
-
+    
     this.progress.message('💾 Saving files...');
     await this.project.save();
     this.progress.message('✅ Generation complete!');
@@ -267,20 +249,60 @@ export class OpenAPIGenerator {
         { overwrite: true }
       );
 
-      // Check if this type depends on other types
-      const dependencies = this.extractDependencies(schema);
-      if (dependencies.length > 0) {
-        // Add imports for dependencies
-        for (const dep of dependencies) {
+      // Generate the type first
+      this.generateTypeFromSchema(file, name, schema);
+      
+      // Then extract only the types that are actually used in the generated code
+      const usedTypes = this.extractUsedTypesFromFile(file);
+      const allSchemas = (this.api?.components as any)?.schemas || (this.api as any)?.definitions || {};
+      
+      // Get the type name being defined in this file (exclude it from imports)
+      const currentTypeName = this.naming.toTypeName(name);
+      
+      // Filter to only include types that exist in our schema (not built-ins)
+      // and exclude the type being defined in this file
+      const importedTypes = new Set<string>();
+      for (const typeName of usedTypes) {
+        // Skip the type being defined in this file
+        if (typeName === currentTypeName) {
+          continue;
+        }
+        
+        // Check if this type exists in our schemas
+        const schemaName = Object.keys(allSchemas).find(
+          schemaName => this.naming.toTypeName(schemaName) === typeName
+        );
+        if (schemaName) {
+          importedTypes.add(typeName);
+        }
+      }
+      
+      // Add imports only for types that are actually used
+      if (importedTypes.size > 0) {
+        // Group imports by file (for separate files mode)
+        const importsByFile = new Map<string, Set<string>>();
+        for (const typeName of importedTypes) {
+          const schemaName = Object.keys(allSchemas).find(
+            schemaName => this.naming.toTypeName(schemaName) === typeName
+          );
+          if (schemaName) {
+            const fileName = this.naming.toKebabCase(schemaName);
+            if (!importsByFile.has(fileName)) {
+              importsByFile.set(fileName, new Set());
+            }
+            importsByFile.get(fileName)!.add(typeName);
+          }
+        }
+        
+        // Add imports grouped by file
+        for (const [fileName, types] of importsByFile) {
           file.addImportDeclaration({
-            moduleSpecifier: `./${this.naming.toKebabCase(dep)}.js`,
-            namedImports: [this.naming.toTypeName(dep)],
+            moduleSpecifier: `./${fileName}.js`,
+            namedImports: Array.from(types).sort(),
             isTypeOnly: true,
           });
         }
       }
-
-      this.generateTypeFromSchema(file, name, schema);
 
       // Add re-export to index file
       indexFile.addExportDeclaration({
@@ -322,37 +344,54 @@ export class OpenAPIGenerator {
         { overwrite: true }
       );
 
-      // Collect all dependencies for this group
-      const groupDependencies = new Set<string>();
-      for (const [name, schema] of Object.entries(groupSchemas)) {
-        const deps = this.extractDependencies(schema);
-        deps.forEach(dep => {
-          // Only add as dependency if it's not in the same group
-          if (!groupSchemas[dep]) {
-            groupDependencies.add(dep);
-          }
-        });
-      }
-
-      // Add imports for external dependencies
-      if (groupDependencies.size > 0) {
-        for (const dep of groupDependencies) {
-          const depGroup = this.findSchemaGroup(dep, schemaGroups);
-          if (depGroup && depGroup !== groupName) {
-            file.addImportDeclaration({
-              moduleSpecifier: `./${this.naming.toKebabCase(depGroup)}.js`,
-              namedImports: [this.naming.toTypeName(dep)],
-              isTypeOnly: true,
-            });
-          }
-        }
-      }
-
-      // Generate all types in this group
+      // Generate all types in this group first
       for (const [typeName, schema] of Object.entries(groupSchemas)) {
         this.generateTypeFromSchema(file, typeName, schema);
         processedTypes++;
         this.progress.update(processedTypes, this.naming.toTypeName(typeName));
+      }
+
+      // Then extract only the types that are actually used in the generated code
+      const usedTypes = this.extractUsedTypesFromFile(file);
+      const allSchemas = (this.api?.components as any)?.schemas || (this.api as any)?.definitions || {};
+      
+      // Get the type names defined in this group (exclude them from imports)
+      const currentGroupTypeNames = new Set(
+        Object.keys(groupSchemas).map(schemaName => this.naming.toTypeName(schemaName))
+      );
+      
+      // Filter to only include types that exist in our schema (not built-ins)
+      // and that are not in the same group
+      const importedTypesByGroup = new Map<string, Set<string>>();
+      for (const typeName of usedTypes) {
+        // Skip types defined in this group
+        if (currentGroupTypeNames.has(typeName)) {
+          continue;
+        }
+        
+        // Check if this type exists in our schemas
+        const schemaName = Object.keys(allSchemas).find(
+          schemaName => this.naming.toTypeName(schemaName) === typeName
+        );
+        if (schemaName) {
+          // Check if it's in a different group
+          const depGroup = this.findSchemaGroup(schemaName, schemaGroups);
+          if (depGroup && depGroup !== groupName) {
+            if (!importedTypesByGroup.has(depGroup)) {
+              importedTypesByGroup.set(depGroup, new Set());
+            }
+            importedTypesByGroup.get(depGroup)!.add(typeName);
+          }
+        }
+      }
+      
+      // Add imports grouped by file
+      for (const [depGroup, types] of importedTypesByGroup) {
+        file.addImportDeclaration({
+          moduleSpecifier: `./${this.naming.toKebabCase(depGroup)}.js`,
+          namedImports: Array.from(types).sort(),
+          isTypeOnly: true,
+        });
       }
 
       // Add re-export to index file
@@ -1169,12 +1208,20 @@ export class OpenAPIGenerator {
       
       if (hasNested) {
         this.generateNestedNamespace(classDeclaration, rootNamespace, allRootOperations);
-        processedOperations += allRootOperations.length;
-        this.progress.update(processedOperations, rootNamespace);
+        // Update progress for each operation in nested namespace
+        for (const op of allRootOperations) {
+          const { path, method, operation } = op as any;
+          processedOperations++;
+          this.progress.update(processedOperations, operation.operationId || `${method.toUpperCase()} ${path}`);
+        }
       } else {
         this.generateNamespaceProperty(classDeclaration, rootNamespace, allRootOperations);
-        processedOperations += allRootOperations.length;
-        this.progress.update(processedOperations, rootNamespace);
+        // Update progress for each operation in namespace
+        for (const op of allRootOperations) {
+          const { path, method, operation } = op as any;
+          processedOperations++;
+          this.progress.update(processedOperations, operation.operationId || `${method.toUpperCase()} ${path}`);
+        }
       }
     }
     
@@ -1400,6 +1447,13 @@ export class OpenAPIGenerator {
         const { methods, props } = this.buildNestedNamespaceTypeForSplit(namespaceClass, rootNamespace, operations, separator, namespaceFile);
         methodSignatures.push(...methods);
         properties.push(...props);
+        
+        // Update progress for each operation in nested namespace
+        for (const op of operations) {
+          const { path, method, operation } = op as any;
+          processedOperations++;
+          this.progress.update(processedOperations, operation.operationId || `${method.toUpperCase()} ${path}`);
+        }
       } else {
         // Generate simple namespace with direct methods
         for (const op of operations) {
@@ -1410,6 +1464,10 @@ export class OpenAPIGenerator {
           
           // Generate implementation method - must be public to match type
           this.generateMethod(namespaceClass, path, method, operation, undefined, true, metadata);
+          
+          // Update progress for each operation
+          processedOperations++;
+          this.progress.update(processedOperations, operation.operationId || `${method.toUpperCase()} ${path}`);
         }
       }
       
@@ -1444,14 +1502,63 @@ export class OpenAPIGenerator {
         usedTypesSet.delete(inlineType);
       }
       
-      // Update namespaceUsedTypes with the complete set
-      namespaceUsedTypes = Array.from(usedTypesSet).sort();
+      // Extract types from the actual implementation methods to ensure we only import
+      // types that are actually used in the code (not just in type signatures)
+      // This is the source of truth - only types used in actual method implementations
+      const actuallyUsedTypes = this.extractUsedTypesFromClassMethods(namespaceClass);
       
-      // Add imports after we know all types that are used
-      if (namespaceUsedTypes.length > 0) {
+      // Use only types that appear in both method signatures AND actual implementations
+      // This ensures we don't import types that are only referenced in type aliases
+      const finalUsedTypes = new Set<string>();
+      for (const typeName of actuallyUsedTypes) {
+        // Skip inline parameter types
+        if (inlineParamTypes.has(typeName)) {
+          continue;
+        }
+        
+        // Skip namespace class name and type alias name (these are defined in the namespace file)
+        if (typeName === `${this.naming.toTypeName(rootNamespace)}Namespace` || 
+            typeName === `${this.naming.toTypeName(rootNamespace)}Operations`) {
+          continue;
+        }
+        
+        // Only include if it was also in the method signatures (usedTypesSet)
+        // This ensures we're importing types that are actually used
+        if (usedTypesSet.has(typeName)) {
+          finalUsedTypes.add(typeName);
+        }
+      }
+      
+      const allSchemas = (this.api?.components as any)?.schemas || (this.api as any)?.definitions || {};
+      
+      // Filter to only include types that exist in our schema (not built-ins or inline types)
+      const importedTypes = new Set<string>();
+      for (const typeName of finalUsedTypes) {
+        // Skip inline parameter types
+        if (inlineParamTypes.has(typeName)) {
+          continue;
+        }
+        
+        // Skip namespace class name and type alias name (these are defined in the namespace file)
+        if (typeName === `${this.naming.toTypeName(rootNamespace)}Namespace` || 
+            typeName === `${this.naming.toTypeName(rootNamespace)}Operations`) {
+          continue;
+        }
+        
+        // Check if this type exists in our schemas
+        const schemaName = Object.keys(allSchemas).find(
+          schemaName => this.naming.toTypeName(schemaName) === typeName
+        );
+        if (schemaName) {
+          importedTypes.add(typeName);
+        }
+      }
+      
+      // Add imports only for types that are actually used
+      if (importedTypes.size > 0) {
         namespaceFile.addImportDeclaration({
           moduleSpecifier: '../types.js',
-          namedImports: namespaceUsedTypes,
+          namedImports: Array.from(importedTypes).sort(),
           isTypeOnly: true,
         });
       }
@@ -1511,8 +1618,7 @@ export class OpenAPIGenerator {
         constructor.addStatements([`this.${namespacePropertyName} = create${this.naming.toTypeName(rootNamespace)}Namespace(this.client);`]);
       }
 
-      processedOperations += operations.length;
-      this.progress.update(processedOperations, rootNamespace);
+      // Progress is already updated per operation above, so we don't need to update here
     }
 
     if (totalOperations > 0) {
@@ -1568,6 +1674,7 @@ export class OpenAPIGenerator {
     const methodSignatures: string[] = [];
     const properties: string[] = [];
     
+    // Note: Progress updates are handled by the caller since we don't have access to processedOperations here
     for (const { path, method, operation, operationId, metadata } of operations) {
       // OPTIMIZATION: Use pre-computed method name from metadata if available
       const methodName = metadata?.methodName || this.naming.toMethodName(operationId);
@@ -1650,20 +1757,9 @@ export class OpenAPIGenerator {
 
           // Collect types from success responses only (matching getResponseType logic)
           if (operation.responses) {
-            const successResponse = operation.responses['200'] || operation.responses['201'] || operation.responses['204'];
-            if (successResponse) {
-              // OpenAPI v3 format: responses have content property
-              if (successResponse.content) {
-                for (const content of Object.values(successResponse.content) as any[]) {
-                  if (content.schema) {
-                    this.collectTypesFromSchema(content.schema, usedTypes, allSchemas, visited);
-                  }
-                }
-              }
-              // OpenAPI v2 (Swagger 2.0) format: responses have schema property directly
-              else if (successResponse.schema) {
-                this.collectTypesFromSchema(successResponse.schema, usedTypes, allSchemas, visited);
-              }
+            const result = this.findBestResponseSchema(operation.responses);
+            if (result && result.schema) {
+              this.collectTypesFromSchema(result.schema, usedTypes, allSchemas, visited);
             }
           }
         }
@@ -1716,20 +1812,9 @@ export class OpenAPIGenerator {
 
       // Collect types from success responses only (matching getResponseType logic)
       if (operation.responses) {
-        const successResponse = operation.responses['200'] || operation.responses['201'] || operation.responses['204'];
-        if (successResponse) {
-          // OpenAPI v3 format: responses have content property
-          if (successResponse.content) {
-            for (const content of Object.values(successResponse.content) as any[]) {
-              if (content.schema) {
-                this.collectTypesFromSchema(content.schema, usedTypes, allSchemas, visited);
-              }
-            }
-          }
-          // OpenAPI v2 (Swagger 2.0) format: responses have schema property directly
-          else if (successResponse.schema) {
-            this.collectTypesFromSchema(successResponse.schema, usedTypes, allSchemas, visited);
-          }
+        const result = this.findBestResponseSchema(operation.responses);
+        if (result && result.schema) {
+          this.collectTypesFromSchema(result.schema, usedTypes, allSchemas, visited);
         }
       }
 
@@ -1963,6 +2048,9 @@ export class OpenAPIGenerator {
           let namespace = 'default';
           let separator: string | null = null;
           
+          // HTTP method names that should not be treated as namespaces
+          const httpMethodNames = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options']);
+          
           // Determine separator and namespace in one pass - cache the separator index
           const slashIndex = operationId.indexOf('/');
           const dotIndex = operationId.indexOf('.');
@@ -1972,13 +2060,35 @@ export class OpenAPIGenerator {
             separator = '/';
             parts = operationId.split('/');
             if (parts.length > 1) {
-              namespace = parts.slice(0, -1).join('/');
+              const firstPart = parts[0];
+              // Validate that the first part is a valid namespace:
+              // - Must be alphanumeric (no underscores, hyphens, etc.)
+              // - Must not be an HTTP method name
+              // - Must not be empty
+              if (firstPart && /^[a-zA-Z][a-zA-Z0-9]*$/.test(firstPart) && !httpMethodNames.has(firstPart.toLowerCase())) {
+                namespace = parts.slice(0, -1).join('/');
+              } else {
+                // Invalid namespace, treat as default
+                separator = null;
+                parts = [];
+              }
             }
           } else if (dotIndex !== -1) {
             separator = '.';
             parts = operationId.split('.');
             if (parts.length > 1) {
-              namespace = parts.slice(0, -1).join('.');
+              const firstPart = parts[0];
+              // Validate that the first part is a valid namespace:
+              // - Must be alphanumeric (no underscores, hyphens, etc.)
+              // - Must not be an HTTP method name
+              // - Must not be empty
+              if (firstPart && /^[a-zA-Z][a-zA-Z0-9]*$/.test(firstPart) && !httpMethodNames.has(firstPart.toLowerCase())) {
+                namespace = parts.slice(0, -1).join('.');
+              } else {
+                // Invalid namespace, treat as default
+                separator = null;
+                parts = [];
+              }
             }
           }
 
@@ -2358,7 +2468,7 @@ ${operations.map(({ operationId }) => {
       hasQuestionToken: true,
     });
 
-    const responseType = this.getResponseType(operation.responses);
+    const responseType = this.getResponseType(operation.responses, file, methodName);
 
     // Build method signature string
     const paramStrings = methodParams.map(p => `${p.name}${p.hasQuestionToken ? '?' : ''}: ${p.type}`);
@@ -2426,7 +2536,7 @@ ${operations.map(({ operationId }) => {
         hasQuestionToken: true,
       });
 
-      const responseType = this.getResponseType(operation.responses);
+      const responseType = this.getResponseType(operation.responses, file, methodName);
       interfaceDeclaration.addMethod({
         name: methodName,
         parameters: methodParams,
@@ -2670,7 +2780,7 @@ ${operations.map(({ operationId }) => {
       hasQuestionToken: true,
     });
 
-    const responseType = this.getResponseType(operation.responses);
+    const responseType = this.getResponseType(operation.responses, classDeclaration.getSourceFile(), baseMethodName);
 
     const methodDeclaration = classDeclaration.addMethod({
       name: methodName,
@@ -2701,10 +2811,10 @@ ${operations.map(({ operationId }) => {
       jsdocParts.push(`@operationId ${operationId}`);
 
       // Response documentation (most useful)
-      const successResponse = operation.responses?.['200'] || operation.responses?.['201'] || operation.responses?.['204'];
-      if (successResponse?.description) {
+      const result = operation.responses ? this.findBestResponseSchema(operation.responses) : null;
+      if (result?.description) {
         if (jsdocParts.length > 0) jsdocParts.push('');
-        jsdocParts.push(`@returns ${successResponse.description}`);
+        jsdocParts.push(`@returns ${result.description}`);
       }
 
       methodDeclaration.addJsDoc({
@@ -2905,39 +3015,160 @@ ${operations.map(({ operationId }) => {
     return typeName;
   }
 
-  public getResponseType(responses: any): string {
+  /**
+   * Generates a named type for response schema with comments.
+   * If schema is a reference, returns the referenced type name.
+   * If schema is inline, generates a new type interface with comments.
+   */
+  private generateResponseType(file: SourceFile, schema: any, baseMethodName: string, responseDescription?: string): string {
+    if (!schema) {
+      return 'unknown';
+    }
+
+    // If schema is a reference, use the referenced type name (which already has comments)
+    if (schema.$ref) {
+      const refName = schema.$ref.split('/').pop();
+      return this.naming.toTypeName(refName);
+    }
+
+    // For inline schemas, generate a named type with comments
+    const typeName = `${this.naming.toTypeName(baseMethodName)}Response`;
+    
+    // Check if type already exists to avoid duplicates
+    const existingType = file.getTypeAlias(typeName);
+    if (existingType) {
+      return typeName;
+    }
+
+    // Add response description to schema if available
+    const schemaWithDescription = responseDescription 
+      ? { ...schema, description: responseDescription }
+      : schema;
+
+    // Generate the type with comments
+    this.generateTypeFromSchema(file, typeName, schemaWithDescription);
+    
+    return typeName;
+  }
+
+  public getResponseType(responses: any, file?: SourceFile, baseMethodName?: string): string {
     // Optimization #3: Create efficient cache key instead of JSON.stringify
-    const cacheKey = this.getResponseTypeCacheKey(responses);
+    // Include method name in cache key when generating types to avoid conflicts
+    const baseCacheKey = this.getResponseTypeCacheKey(responses);
+    const cacheKey = file && baseMethodName ? `${baseCacheKey}:${baseMethodName}` : baseCacheKey;
+    
     if (this.responseTypeCache.has(cacheKey)) {
       return this.responseTypeCache.get(cacheKey)!;
     }
 
-    const successResponse = responses?.['200'] || responses?.['201'] || responses?.['204'];
-    if (!successResponse) {
+    // Find the best response schema (handles all success codes, ranges, and default)
+    const result = this.findBestResponseSchema(responses);
+    if (!result || !result.schema) {
       this.responseTypeCache.set(cacheKey, 'unknown');
       return 'unknown';
     }
 
-    let result: string;
+    const { schema, description: responseDescription } = result;
+
+    // If we have a file and method name, and the schema is inline (not a reference),
+    // generate a named type with JSDoc
+    let typeResult: string;
+    if (file && baseMethodName && schema && !schema.$ref) {
+      typeResult = this.generateResponseType(file, schema, baseMethodName, responseDescription);
+    } else {
+      // Fall back to inline type string for references or when file/method name not available
+      typeResult = this.getTypeString(schema);
+    }
+
+    this.responseTypeCache.set(cacheKey, typeResult);
+    return typeResult;
+  }
+
+  /**
+   * Finds the best response schema from OpenAPI responses.
+   * Checks for specific success codes, range responses (2XX), and default responses.
+   * Returns the response object and extracted schema.
+   */
+  private findBestResponseSchema(responses: any): { response: any; schema: any; description?: string } | null {
+    if (!responses) return null;
+
+    // Priority order:
+    // 1. Specific success codes (200, 201, 202, 204, etc.)
+    // 2. Range responses (2XX for any 2xx status)
+    // 3. Default response
+
+    // Check specific success codes (2xx range)
+    const successCodes = ['200', '201', '202', '204', '206'];
+    for (const code of successCodes) {
+      const response = responses[code];
+      if (response) {
+        const schema = this.extractSchemaFromResponse(response);
+        if (schema !== null) {
+          return { response, schema, description: response.description };
+        }
+      }
+    }
+
+    // Check for range responses (2XX, 3XX, etc.)
+    for (const key in responses) {
+      if (key.match(/^[23]XX$/)) {
+        const response = responses[key];
+        if (response) {
+          const schema = this.extractSchemaFromResponse(response);
+          if (schema !== null) {
+            return { response, schema, description: response.description };
+          }
+        }
+      }
+    }
+
+    // Check default response
+    if (responses.default) {
+      const response = responses.default;
+      const schema = this.extractSchemaFromResponse(response);
+      if (schema !== null) {
+        return { response, schema, description: response.description };
+      }
+    }
+
+    // Fallback: check any response with a schema
+    for (const key in responses) {
+      const response = responses[key];
+      if (response) {
+        const schema = this.extractSchemaFromResponse(response);
+        if (schema !== null) {
+          return { response, schema, description: response.description };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extracts schema from a response object (handles both OpenAPI v3 and v2 formats).
+   */
+  private extractSchemaFromResponse(response: any): any {
+    if (!response) return null;
 
     // OpenAPI v3 format: responses have content property
-    if (successResponse.content) {
-      const content = successResponse.content;
-      const contentType = Object.keys(content)[0];
-      const schema = content[contentType]?.schema;
-      result = this.getTypeString(schema);
-    }
-    // OpenAPI v2 (Swagger 2.0) format: responses have schema property directly
-    else if (successResponse.schema) {
-      result = this.getTypeString(successResponse.schema);
-    }
-    // No schema/content found
-    else {
-      result = 'void';
+    if (response.content) {
+      // Try to find the first content type with a schema
+      for (const contentType in response.content) {
+        const content = response.content[contentType];
+        if (content?.schema) {
+          return content.schema;
+        }
+      }
+      return null;
     }
 
-    this.responseTypeCache.set(cacheKey, result);
-    return result;
+    // OpenAPI v2 (Swagger 2.0) format: responses have schema property directly
+    if (response.schema) {
+      return response.schema;
+    }
+
+    return null;
   }
 
   /**
@@ -2947,13 +3178,15 @@ ${operations.map(({ operationId }) => {
   private getResponseTypeCacheKey(responses: any): string {
     if (!responses) return 'no-responses';
 
-    const successResponse = responses['200'] || responses['201'] || responses['204'];
-    if (!successResponse) return 'no-success';
+    const result = this.findBestResponseSchema(responses);
+    if (!result) return 'no-success';
 
-    // Only serialize the schema reference or a minimal representation
-    if (successResponse.content) {
-      const contentType = Object.keys(successResponse.content)[0];
-      const schema = successResponse.content[contentType]?.schema;
+    const { schema } = result;
+
+    // Check if response has content (OpenAPI v3) or schema (v2)
+    const response = result.response;
+    if (response.content) {
+      const contentType = Object.keys(response.content)[0];
       if (schema?.$ref) {
         return `content:${contentType}:ref:${schema.$ref}`;
       }
@@ -2962,14 +3195,10 @@ ${operations.map(({ operationId }) => {
     }
 
     // OpenAPI v2 format
-    if (successResponse.schema) {
-      if (successResponse.schema.$ref) {
-        return `schema:ref:${successResponse.schema.$ref}`;
-      }
-      return `schema:${this.getSchemaCacheKey(successResponse.schema) || 'inline'}`;
+    if (schema?.$ref) {
+      return `schema:ref:${schema.$ref}`;
     }
-
-    return 'void';
+    return `schema:${this.getSchemaCacheKey(schema) || 'inline'}`;
   }
 
   private async generateIndex(): Promise<void> {
@@ -3199,5 +3428,97 @@ ${operations.map(({ operationId }) => {
     }
 
     this.api.paths = filteredPaths;
+  }
+
+  /**
+   * Extracts type names that are actually used in a generated source file
+   * by analyzing the generated code (excluding import statements)
+   */
+  private extractUsedTypesFromFile(file: SourceFile): Set<string> {
+    const usedTypes = new Set<string>();
+    const fileText = file.getFullText();
+    
+    // Get import statement ranges to exclude them from analysis
+    const importDeclarations = file.getImportDeclarations();
+    const importRanges: Array<{ start: number; end: number }> = [];
+    
+    for (const importDecl of importDeclarations) {
+      const start = importDecl.getStart();
+      const end = importDecl.getEnd();
+      importRanges.push({ start, end });
+    }
+    
+    // Extract type names from the file text, excluding import statements
+    // Match TypeScript type names (valid identifiers starting with uppercase)
+    const typeNamePattern = /\b([A-Z_][a-zA-Z0-9_]*)\b/g;
+    const primitiveAndBuiltins = new Set([
+      'string', 'number', 'boolean', 'void', 'null', 'unknown', 'any',
+      'Array', 'Record', 'Promise', 'AxiosResponse', 'AxiosInstance', 'AxiosRequestConfig',
+      'Partial', 'Required', 'Readonly', 'Pick', 'Omit', 'Exclude', 'Extract',
+      'Set', 'Map', 'Date', 'Error', 'Object', 'Function'
+    ]);
+    
+    let match;
+    while ((match = typeNamePattern.exec(fileText)) !== null) {
+      const matchStart = match.index!;
+      const matchEnd = matchStart + match[0].length;
+      const typeName = match[1];
+      
+      // Skip if it's in an import statement
+      const isInImport = importRanges.some(range => 
+        matchStart >= range.start && matchEnd <= range.end
+      );
+      
+      if (isInImport) {
+        continue;
+      }
+      
+      // Skip primitives and built-ins
+      if (primitiveAndBuiltins.has(typeName)) {
+        continue;
+      }
+      
+      usedTypes.add(typeName);
+    }
+    
+    return usedTypes;
+  }
+
+  /**
+   * Extracts type names that are actually used in class methods
+   * by analyzing only the method implementations (not type aliases)
+   */
+  private extractUsedTypesFromClassMethods(classDeclaration: any): Set<string> {
+    const usedTypes = new Set<string>();
+    
+    // Get all methods from the class
+    const methods = classDeclaration.getMethods();
+    
+    for (const method of methods) {
+      const methodText = method.getText();
+      
+      // Extract type names from method signatures and implementations
+      const typeNamePattern = /\b([A-Z_][a-zA-Z0-9_]*)\b/g;
+      const primitiveAndBuiltins = new Set([
+        'string', 'number', 'boolean', 'void', 'null', 'unknown', 'any',
+        'Array', 'Record', 'Promise', 'AxiosResponse', 'AxiosInstance', 'AxiosRequestConfig',
+        'Partial', 'Required', 'Readonly', 'Pick', 'Omit', 'Exclude', 'Extract',
+        'Set', 'Map', 'Date', 'Error', 'Object', 'Function'
+      ]);
+      
+      let match;
+      while ((match = typeNamePattern.exec(methodText)) !== null) {
+        const typeName = match[1];
+        
+        // Skip primitives and built-ins
+        if (primitiveAndBuiltins.has(typeName)) {
+          continue;
+        }
+        
+        usedTypes.add(typeName);
+      }
+    }
+    
+    return usedTypes;
   }
 }

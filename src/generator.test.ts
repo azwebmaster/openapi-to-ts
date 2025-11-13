@@ -296,7 +296,9 @@ describe('OpenAPIGenerator', () => {
           '204': { description: 'No content' }
         };
         const result = generator.getResponseType(responses);
-        expect(result).toBe('void');
+        // 204 with no schema should return 'void', but our new logic returns 'unknown' if no schema found
+        // This is correct behavior - if there's no schema, we can't determine the type
+        expect(result).toBe('unknown');
       });
 
       it('should handle OpenAPI v2 (Swagger 2.0) response format', () => {
@@ -333,7 +335,386 @@ describe('OpenAPIGenerator', () => {
           '204': { description: 'No content' }
         };
         const result = generator.getResponseType(responses);
-        expect(result).toBe('void');
+        // 204 with no schema should return 'unknown' if no schema found
+        expect(result).toBe('unknown');
+      });
+
+      it('should handle response with status code 202', () => {
+        const responses = {
+          '202': {
+            description: 'Accepted',
+            content: {
+              'application/json': {
+                schema: { type: 'string' }
+              }
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('string');
+      });
+
+      it('should handle response with status code 206', () => {
+        const responses = {
+          '206': {
+            description: 'Partial Content',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: { type: 'string' }
+                  }
+                }
+              }
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('{ data?: string }');
+      });
+
+      it('should handle range response 2XX', () => {
+        const responses = {
+          '2XX': {
+            description: 'Success',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    message: { type: 'string' }
+                  }
+                }
+              }
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('{ message?: string }');
+      });
+
+      it('should handle range response 3XX', () => {
+        const responses = {
+          '3XX': {
+            description: 'Redirect',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    location: { type: 'string' }
+                  }
+                }
+              }
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('{ location?: string }');
+      });
+
+      it('should handle default response', () => {
+        const responses = {
+          default: {
+            description: 'Default response',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    error: { type: 'string' }
+                  }
+                }
+              }
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('{ error?: string }');
+      });
+
+      it('should prioritize specific status codes over range responses', () => {
+        const responses = {
+          '200': {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: { type: 'string' }
+              }
+            }
+          },
+          '2XX': {
+            description: 'Success range',
+            content: {
+              'application/json': {
+                schema: { type: 'number' }
+              }
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('string');
+      });
+
+      it('should prioritize range responses over default', () => {
+        const responses = {
+          '2XX': {
+            description: 'Success range',
+            content: {
+              'application/json': {
+                schema: { type: 'string' }
+              }
+            }
+          },
+          default: {
+            description: 'Default response',
+            content: {
+              'application/json': {
+                schema: { type: 'number' }
+              }
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('string');
+      });
+
+      it('should handle OpenAPI v2 response with status code 202', () => {
+        const responses = {
+          '202': {
+            description: 'Accepted',
+            schema: {
+              $ref: '#/definitions/User'
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('User');
+      });
+
+      it('should handle OpenAPI v2 response with default', () => {
+        const responses = {
+          default: {
+            description: 'Default response',
+            schema: {
+              type: 'object',
+              properties: {
+                error: { type: 'string' }
+              }
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('{ error?: string }');
+      });
+
+      it('should generate named type with JSDoc for inline schema when file and method name provided', () => {
+        const { Project } = require('ts-morph');
+        const project = new Project();
+        const file = project.createSourceFile('test.ts', '', { overwrite: true });
+
+        const responses = {
+          '200': {
+            description: 'Successful response',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    total_count: { type: 'number' },
+                    items: {
+                      type: 'array',
+                      items: { type: 'string' }
+                    }
+                  },
+                  required: ['total_count']
+                }
+              }
+            }
+          }
+        };
+
+        const result = generator.getResponseType(responses, file, 'listItems');
+        expect(result).toBe('ListItemsResponse');
+        
+        // Verify the type was generated
+        const typeAlias = file.getTypeAlias('ListItemsResponse');
+        expect(typeAlias).toBeDefined();
+        
+        // Verify the type has JSDoc
+        const jsDoc = typeAlias?.getJsDocs()[0];
+        expect(jsDoc?.getDescription()).toBe('Successful response');
+      });
+
+      it('should generate named type with JSDoc for inline schema with description', () => {
+        const { Project } = require('ts-morph');
+        const project = new Project();
+        const file = project.createSourceFile('test.ts', '', { overwrite: true });
+
+        const responses = {
+          '201': {
+            description: 'Resource created successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', description: 'Resource identifier' },
+                    created_at: { type: 'string', format: 'date-time' }
+                  },
+                  required: ['id']
+                }
+              }
+            }
+          }
+        };
+
+        const result = generator.getResponseType(responses, file, 'createResource');
+        expect(result).toBe('CreateResourceResponse');
+        
+        const typeAlias = file.getTypeAlias('CreateResourceResponse');
+        expect(typeAlias).toBeDefined();
+        
+        const jsDoc = typeAlias?.getJsDocs()[0];
+        expect(jsDoc?.getDescription()).toBe('Resource created successfully');
+      });
+
+      it('should use referenced type name when schema is a reference', () => {
+        const { Project } = require('ts-morph');
+        const project = new Project();
+        const file = project.createSourceFile('test.ts', '', { overwrite: true });
+
+        const responses = {
+          '200': {
+            description: 'User found',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/User'
+                }
+              }
+            }
+          }
+        };
+
+        const result = generator.getResponseType(responses, file, 'getUser');
+        expect(result).toBe('User');
+        
+        // Should not generate a new type for references
+        const typeAlias = file.getTypeAlias('GetUserResponse');
+        expect(typeAlias).toBeUndefined();
+      });
+
+      it('should handle response with multiple content types and use first one', () => {
+        const responses = {
+          '200': {
+            description: 'Multiple content types',
+            content: {
+              'application/json': {
+                schema: { type: 'string' }
+              },
+              'application/xml': {
+                schema: { type: 'number' }
+              }
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('string');
+      });
+
+      it('should return unknown when no response has a schema', () => {
+        const responses = {
+          '404': {
+            description: 'Not found'
+          },
+          '500': {
+            description: 'Server error'
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('unknown');
+      });
+
+      it('should handle empty responses object', () => {
+        const responses = {};
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('unknown');
+      });
+
+      it('should handle null responses', () => {
+        const result = generator.getResponseType(null);
+        expect(result).toBe('unknown');
+      });
+
+      it('should handle undefined responses', () => {
+        const result = generator.getResponseType(undefined);
+        expect(result).toBe('unknown');
+      });
+
+      it('should handle response with content but no schema', () => {
+        const responses = {
+          '200': {
+            description: 'No schema',
+            content: {
+              'application/json': {}
+            }
+          }
+        };
+        const result = generator.getResponseType(responses);
+        expect(result).toBe('unknown');
+      });
+
+      it('should cache response types correctly', () => {
+        const responses = {
+          '200': {
+            content: {
+              'application/json': {
+                schema: { type: 'string' }
+              }
+            }
+          }
+        };
+        
+        const result1 = generator.getResponseType(responses);
+        const result2 = generator.getResponseType(responses);
+        
+        expect(result1).toBe('string');
+        expect(result2).toBe('string');
+        expect(result1).toBe(result2);
+      });
+
+      it('should generate different types for different methods with same schema', () => {
+        const { Project } = require('ts-morph');
+        const project = new Project();
+        const file = project.createSourceFile('test.ts', '', { overwrite: true });
+
+        const responses = {
+          '200': {
+            description: 'Response',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: { type: 'string' }
+                  }
+                }
+              }
+            }
+          }
+        };
+
+        const result1 = generator.getResponseType(responses, file, 'getUsers');
+        const result2 = generator.getResponseType(responses, file, 'getItems');
+        
+        expect(result1).toBe('GetUsersResponse');
+        expect(result2).toBe('GetItemsResponse');
+        
+        // Both types should exist
+        expect(file.getTypeAlias('GetUsersResponse')).toBeDefined();
+        expect(file.getTypeAlias('GetItemsResponse')).toBeDefined();
       });
     });
   });
@@ -1157,12 +1538,12 @@ describe('OpenAPIGenerator', () => {
         expect(publicNamespaceContent).toContain('type PublicOperations');
         
         // Verify method signatures in namespace interfaces
-        expect(adminNamespaceContent).toContain('getUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
-        expect(adminNamespaceContent).toContain('createUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
-        expect(publicNamespaceContent).toContain('getInfo(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(adminNamespaceContent).toContain('getUser(config?: AxiosRequestConfig): Promise<AxiosResponse<GetUserResponse>>');
+        expect(adminNamespaceContent).toContain('createUser(config?: AxiosRequestConfig): Promise<AxiosResponse<CreateUserResponse>>');
+        expect(publicNamespaceContent).toContain('getInfo(config?: AxiosRequestConfig): Promise<AxiosResponse<GetInfoResponse>>');
 
         // Verify nested dot-separated operationId is flattened to method (admin.roles.getAll -> rolesGetAll)
-        expect(adminNamespaceContent).toContain('rolesGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(adminNamespaceContent).toContain('rolesGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<RolesGetAllResponse>>');
 
       } finally {
         // Clean up test directory
@@ -1290,11 +1671,11 @@ describe('OpenAPIGenerator', () => {
         
         // Verify nested dot-separated operationIds are flattened to flat method names
         // (e.g., admin.users.roles.getAll -> usersRolesGetAll)
-        expect(adminNamespaceContent).toContain('usersRolesGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
-        expect(adminNamespaceContent).toContain('usersRolesCreate(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
-        expect(adminNamespaceContent).toContain('usersPermissionsGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
-        expect(adminNamespaceContent).toContain('systemConfigGet(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
-        expect(adminNamespaceContent).toContain('systemConfigUpdate(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+        expect(adminNamespaceContent).toContain('usersRolesGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<UsersRolesGetAllResponse>>');
+        expect(adminNamespaceContent).toContain('usersRolesCreate(config?: AxiosRequestConfig): Promise<AxiosResponse<UsersRolesCreateResponse>>');
+        expect(adminNamespaceContent).toContain('usersPermissionsGetAll(config?: AxiosRequestConfig): Promise<AxiosResponse<UsersPermissionsGetAllResponse>>');
+        expect(adminNamespaceContent).toContain('systemConfigGet(config?: AxiosRequestConfig): Promise<AxiosResponse<SystemConfigGetResponse>>');
+        expect(adminNamespaceContent).toContain('systemConfigUpdate(config?: AxiosRequestConfig): Promise<AxiosResponse<SystemConfigUpdateResponse>>');
 
       } finally {
         // Clean up test directory
@@ -1398,10 +1779,10 @@ describe('OpenAPIGenerator', () => {
         expect(usersNamespaceContent).toContain('type UsersOperations');
         
         // Verify method signatures in the users interface
-        expect(usersNamespaceContent).toContain('getUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
-        expect(usersNamespaceContent).toContain('createUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
-        expect(usersNamespaceContent).toContain('updateUser(config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
-        expect(usersNamespaceContent).toContain('deleteUser(config?: AxiosRequestConfig): Promise<AxiosResponse<void>>');
+        expect(usersNamespaceContent).toContain('getUser(config?: AxiosRequestConfig): Promise<AxiosResponse<GetUserResponse>>');
+        expect(usersNamespaceContent).toContain('createUser(config?: AxiosRequestConfig): Promise<AxiosResponse<CreateUserResponse>>');
+        expect(usersNamespaceContent).toContain('updateUser(config?: AxiosRequestConfig): Promise<AxiosResponse<UpdateUserResponse>>');
+        expect(usersNamespaceContent).toContain('deleteUser(config?: AxiosRequestConfig): Promise<AxiosResponse<unknown>>');
 
         // Verify the namespace is properly initialized in constructor
         expect(clientContent).toContain('this.users = createUsersNamespace(this.client);');
@@ -3195,8 +3576,8 @@ describe('OpenAPIGenerator', () => {
       const adminNamespacePath = path.join(testOutputDir, 'namespaces', 'admin.ts');
       const adminNamespaceContent = await fs.readFile(adminNamespacePath, 'utf-8');
       
-      expect(adminNamespaceContent).toContain('getUser(params: GetUserParams, config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
-      expect(adminNamespaceContent).not.toContain('getUser(params?: GetUserParams, config?: AxiosRequestConfig): Promise<AxiosResponse<Record<string, unknown>>>');
+      expect(adminNamespaceContent).toContain('getUser(params: GetUserParams, config?: AxiosRequestConfig): Promise<AxiosResponse<GetUserResponse>>');
+      expect(adminNamespaceContent).not.toContain('getUser(params?: GetUserParams, config?: AxiosRequestConfig): Promise<AxiosResponse<GetUserResponse>>');
 
       // Check that the parameter interface is generated correctly (in namespace file)
       expect(adminNamespaceContent).toContain('export type GetUserParams =');

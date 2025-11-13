@@ -30,9 +30,19 @@ export class ProgressIndicator {
     const elapsed = Date.now() - this.startTime;
     const elapsedSeconds = (elapsed / 1000).toFixed(1);
     
-    const itemDisplay = itemName ? ` - ${itemName}` : '';
+    // Truncate itemName if it's too long to prevent line wrapping
+    // Assume terminal width of 120 chars, leave room for progress info (~50 chars)
+    const maxItemNameLength = 70;
+    let itemDisplay = '';
+    if (itemName) {
+      const truncated = itemName.length > maxItemNameLength 
+        ? itemName.substring(0, maxItemNameLength - 3) + '...'
+        : itemName;
+      itemDisplay = ` - ${truncated}`;
+    }
+    
     // Clear the line first, then write new content (prevents trailing characters)
-    // Use \x1b[K to clear from cursor to end of line, ensuring old characters are removed
+    // Use \r to return to start of line, \x1b[K to clear from cursor to end of line
     process.stdout.write(`\r\x1b[K${this.stepName}: [${this.currentStep}/${this.totalSteps}] ${percentage}%${itemDisplay}`);
   }
 
@@ -52,6 +62,7 @@ export class ProgressIndicator {
   message(text: string): void {
     if (this.disabled) return;
     // Clear any progress line that might be active before printing a new message
+    // First clear the current line, then move to a new line, then print the message
     process.stdout.write(`\r\x1b[K\n${text}\n`);
   }
 }
