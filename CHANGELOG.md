@@ -1,5 +1,11 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.18
+
+### Patch Changes
+
+- d7616e7: fix unused imports
+
 ## 0.0.17
 
 ### Patch Changes
