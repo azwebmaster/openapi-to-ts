@@ -6,6 +6,7 @@ import { JSDocUtils } from './utils/jsdoc';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import SwaggerParser from '@apidevtools/swagger-parser';
+import { spawnSync } from 'node:child_process';
 
 describe('OpenAPIGenerator', () => {
   let generator: OpenAPIGenerator;
@@ -4899,3 +4900,148 @@ async function fileExists(filePath: string): Promise<boolean> {
     return false;
   }
 }
+describe('import regression checks', () => {
+  it('should import all referenced types for oneOf response unions in namespace clients', async () => {
+    const testOutputDir = path.join(__dirname, 'test-output-import-oneof');
+
+    try {
+      const testSpec = {
+        openapi: '3.0.0',
+        info: { title: 'Import Union API', version: '1.0.0' },
+        paths: {
+          '/admin/users/{id}': {
+            get: {
+              operationId: 'admin.users.get',
+              parameters: [
+                {
+                  name: 'id',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'string' }
+                }
+              ],
+              responses: {
+                '200': {
+                  description: 'OK',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        oneOf: [
+                          { $ref: '#/components/schemas/User' },
+                          { $ref: '#/components/schemas/ApiError' }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        components: {
+          schemas: {
+            User: {
+              type: 'object',
+              properties: { id: { type: 'string' } },
+              required: ['id']
+            },
+            ApiError: {
+              type: 'object',
+              properties: { message: { type: 'string' } },
+              required: ['message']
+            }
+          }
+        }
+      };
+
+      const specPath = path.join(testOutputDir, 'test-spec.yaml');
+      await fs.mkdir(testOutputDir, { recursive: true });
+      await fs.writeFile(specPath, JSON.stringify(testSpec, null, 2));
+
+      const generator = new OpenAPIGenerator({
+        spec: specPath,
+        outputDir: testOutputDir,
+        namespace: 'ImportUnionAPI'
+      });
+
+      await generator.generate();
+
+      const adminNamespacePath = path.join(testOutputDir, 'namespaces', 'admin.ts');
+      const adminNamespaceContent = await fs.readFile(adminNamespacePath, 'utf-8');
+
+      expect(adminNamespaceContent).toContain('User');
+      expect(adminNamespaceContent).toContain('ApiError');
+      expect(adminNamespaceContent).toMatch(/import type \{[^}]*User[^}]*ApiError[^}]*\} from "\.\.\/types\.js";|import type \{[^}]*ApiError[^}]*User[^}]*\} from "\.\.\/types\.js";/);
+    } finally {
+      try {
+        await fs.rm(testOutputDir, { recursive: true, force: true });
+      } catch (error) {
+        // ignore
+      }
+    }
+  });
+});
+
+describe('GitHub spec integration', () => {
+  it('should generate and type-check selected GitHub API client operations', async () => {
+    const testOutputDir = path.join(__dirname, 'test-output-github-integration');
+    const githubSpecUrl = 'https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json';
+
+    try {
+      await fs.mkdir(testOutputDir, { recursive: true });
+
+      const response = await fetch(githubSpecUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch GitHub spec: ${response.status}`);
+      }
+
+      const specContent = await response.text();
+      const specPath = path.join(testOutputDir, 'github-api.json');
+      await fs.writeFile(specPath, specContent, 'utf-8');
+
+      const generator = new OpenAPIGenerator({
+        spec: specPath,
+        outputDir: testOutputDir,
+        namespace: 'GitHubAPI',
+        operationIds: ['repos/get', 'repos/list-for-user']
+      });
+
+      await generator.generate();
+
+      const tsconfigPath = path.join(testOutputDir, 'tsconfig.test.json');
+      await fs.writeFile(
+        tsconfigPath,
+        JSON.stringify(
+          {
+            compilerOptions: {
+              target: 'ES2020',
+              module: 'ESNext',
+              moduleResolution: 'Node',
+              strict: true,
+              skipLibCheck: true,
+              noEmit: true,
+              types: ['node']
+            },
+            include: ['**/*.ts']
+          },
+          null,
+          2
+        ),
+        'utf-8'
+      );
+
+      const tsc = spawnSync('bunx', ['tsc', '--noEmit', '-p', tsconfigPath], {
+        cwd: testOutputDir,
+        encoding: 'utf-8'
+      });
+
+      expect(tsc.status, `TypeScript check failed:\n${tsc.stdout}\n${tsc.stderr}`).toBe(0);
+    } finally {
+      try {
+        await fs.rm(testOutputDir, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    }
+  }, 120000);
+});
