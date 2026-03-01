@@ -46,4 +46,4 @@ jobs:
       run: bun run test
 
     - name: Integration tests (generator)
-      run: bun run test -- src/generator.test.ts -t "import regression checks|GitHub spec integration"
+      run: bun run test -- tests/integration/**/*.test.ts

@@ -22,7 +22,7 @@ export default defineConfig({
         statements: 80
       }
     },
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'tests/integration/**/*.test.ts'],
     exclude: ['node_modules', 'dist'],
     testTimeout: 10000,
     reporters: process.env.CI ? ['default', 'github-actions'] : ['default']
