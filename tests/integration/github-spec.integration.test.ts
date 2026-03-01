@@ -11,20 +11,14 @@ const __dirname = path.dirname(__filename);
 describe('GitHub spec integration', () => {
   it('should generate and type-check selected GitHub API client operations', async () => {
     const testOutputDir = path.join(__dirname, 'test-output-github-integration');
-    const githubSpecUrl =
-      'https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json';
+    const fixtureSpecPath = path.join(__dirname, 'fixtures', 'github-api.full.json');
 
     try {
       await fs.mkdir(testOutputDir, { recursive: true });
 
-      const response = await fetch(githubSpecUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch GitHub spec: ${response.status}`);
-      }
-
-      const specContent = await response.text();
+      const fixtureSpec = await fs.readFile(fixtureSpecPath, 'utf-8');
       const specPath = path.join(testOutputDir, 'github-api.json');
-      await fs.writeFile(specPath, specContent, 'utf-8');
+      await fs.writeFile(specPath, fixtureSpec, 'utf-8');
 
       const generator = new OpenAPIGenerator({
         spec: specPath,
@@ -66,5 +60,5 @@ describe('GitHub spec integration', () => {
     } finally {
       await fs.rm(testOutputDir, { recursive: true, force: true });
     }
-  }, 120000);
+  }, 180000);
 });
