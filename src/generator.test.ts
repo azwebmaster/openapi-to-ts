@@ -6,6 +6,7 @@ import { JSDocUtils } from './utils/jsdoc';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import SwaggerParser from '@apidevtools/swagger-parser';
+import { spawnSync } from 'node:child_process';
 
 describe('OpenAPIGenerator', () => {
   let generator: OpenAPIGenerator;
@@ -4899,3 +4900,160 @@ async function fileExists(filePath: string): Promise<boolean> {
     return false;
   }
 }
+describe('import regression checks', () => {
+  async function generateAndReadNamespace(spec: unknown, outDirName: string, namespace: string) {
+    const testOutputDir = path.join(__dirname, outDirName);
+    try {
+      const specPath = path.join(testOutputDir, 'test-spec.yaml');
+      await fs.mkdir(testOutputDir, { recursive: true });
+      await fs.writeFile(specPath, JSON.stringify(spec, null, 2));
+
+      const generator = new OpenAPIGenerator({ spec: specPath, outputDir: testOutputDir, namespace });
+      await generator.generate();
+
+      const adminNamespacePath = path.join(testOutputDir, 'namespaces', 'admin.ts');
+      return await fs.readFile(adminNamespacePath, 'utf-8');
+    } finally {
+      await fs.rm(testOutputDir, { recursive: true, force: true });
+    }
+  }
+
+  it('should import all referenced types for oneOf response unions in namespace clients', async () => {
+    const content = await generateAndReadNamespace(
+      {
+        openapi: '3.0.0',
+        info: { title: 'Import Union API', version: '1.0.0' },
+        paths: {
+          '/admin/users/{id}': {
+            get: {
+              operationId: 'admin.users.get',
+              parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+              responses: {
+                '200': {
+                  description: 'OK',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        oneOf: [
+                          { $ref: '#/components/schemas/User' },
+                          { $ref: '#/components/schemas/ApiError' }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        components: {
+          schemas: {
+            User: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+            ApiError: {
+              type: 'object',
+              properties: { message: { type: 'string' } },
+              required: ['message']
+            }
+          }
+        }
+      },
+      'test-output-import-oneof',
+      'ImportUnionAPI'
+    );
+
+    expect(content).toContain('User');
+    expect(content).toContain('ApiError');
+    expect(content).toMatch(/import type \{[^}]*User[^}]*ApiError[^}]*\} from "\.\.\/types\.js";|import type \{[^}]*ApiError[^}]*User[^}]*\} from "\.\.\/types\.js";/);
+  });
+
+  it('should import all referenced types for anyOf response unions in namespace clients', async () => {
+    const content = await generateAndReadNamespace(
+      {
+        openapi: '3.0.0',
+        info: { title: 'Import AnyOf API', version: '1.0.0' },
+        paths: {
+          '/admin/search': {
+            get: {
+              operationId: 'admin.search.list',
+              responses: {
+                '200': {
+                  description: 'OK',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        anyOf: [
+                          { $ref: '#/components/schemas/UserList' },
+                          { $ref: '#/components/schemas/TeamList' }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        components: {
+          schemas: {
+            UserList: { type: 'array', items: { type: 'string' } },
+            TeamList: { type: 'array', items: { type: 'string' } }
+          }
+        }
+      },
+      'test-output-import-anyof',
+      'ImportAnyOfAPI'
+    );
+
+    expect(content).toContain('UserList');
+    expect(content).toContain('TeamList');
+    expect(content).toMatch(/import type \{[^}]*UserList[^}]*TeamList[^}]*\} from "\.\.\/types\.js";|import type \{[^}]*TeamList[^}]*UserList[^}]*\} from "\.\.\/types\.js";/);
+  });
+
+  it('should import all referenced types for allOf composed response schemas in namespace clients', async () => {
+    const content = await generateAndReadNamespace(
+      {
+        openapi: '3.0.0',
+        info: { title: 'Import AllOf API', version: '1.0.0' },
+        paths: {
+          '/admin/profile': {
+            get: {
+              operationId: 'admin.profile.get',
+              responses: {
+                '200': {
+                  description: 'OK',
+                  content: {
+                    'application/json': {
+                      schema: {
+                        allOf: [
+                          { $ref: '#/components/schemas/BaseProfile' },
+                          { $ref: '#/components/schemas/ProfileDetails' }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        components: {
+          schemas: {
+            BaseProfile: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+            ProfileDetails: {
+              type: 'object',
+              properties: { displayName: { type: 'string' } },
+              required: ['displayName']
+            }
+          }
+        }
+      },
+      'test-output-import-allof',
+      'ImportAllOfAPI'
+    );
+
+    expect(content).toContain('BaseProfile');
+    expect(content).toContain('ProfileDetails');
+    expect(content).toMatch(/import type \{[^}]*BaseProfile[^}]*ProfileDetails[^}]*\} from "\.\.\/types\.js";|import type \{[^}]*ProfileDetails[^}]*BaseProfile[^}]*\} from "\.\.\/types\.js";/);
+  });
+});
+

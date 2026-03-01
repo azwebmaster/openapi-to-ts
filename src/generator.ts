@@ -1502,38 +1502,12 @@ export class OpenAPIGenerator {
         usedTypesSet.delete(inlineType);
       }
       
-      // Extract types from the actual implementation methods to ensure we only import
-      // types that are actually used in the code (not just in type signatures)
-      // This is the source of truth - only types used in actual method implementations
-      const actuallyUsedTypes = this.extractUsedTypesFromClassMethods(namespaceClass);
-      
-      // Use only types that appear in both method signatures AND actual implementations
-      // This ensures we don't import types that are only referenced in type aliases
-      const finalUsedTypes = new Set<string>();
-      for (const typeName of actuallyUsedTypes) {
-        // Skip inline parameter types
-        if (inlineParamTypes.has(typeName)) {
-          continue;
-        }
-        
-        // Skip namespace class name and type alias name (these are defined in the namespace file)
-        if (typeName === `${this.naming.toTypeName(rootNamespace)}Namespace` || 
-            typeName === `${this.naming.toTypeName(rootNamespace)}Operations`) {
-          continue;
-        }
-        
-        // Only include if it was also in the method signatures (usedTypesSet)
-        // This ensures we're importing types that are actually used
-        if (usedTypesSet.has(typeName)) {
-          finalUsedTypes.add(typeName);
-        }
-      }
-      
       const allSchemas = (this.api?.components as any)?.schemas || (this.api as any)?.definitions || {};
       
       // Filter to only include types that exist in our schema (not built-ins or inline types)
+      // Use type-signature extraction as source of truth so union/alias response types are imported.
       const importedTypes = new Set<string>();
-      for (const typeName of finalUsedTypes) {
+      for (const typeName of usedTypesSet) {
         // Skip inline parameter types
         if (inlineParamTypes.has(typeName)) {
           continue;

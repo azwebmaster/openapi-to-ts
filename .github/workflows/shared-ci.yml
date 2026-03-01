@@ -44,3 +44,6 @@ jobs:
 
     - name: Test
       run: bun run test
+
+    - name: Integration tests (generator)
+      run: bun run test -- tests/integration/**/*.test.ts
