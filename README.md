@@ -7,7 +7,7 @@ Transform your OpenAPI 3.0+ specifications into production-ready TypeScript clie
 [![npm version](https://img.shields.io/npm/v/@azwebmaster/openapi-to-ts.svg)](https://www.npmjs.com/package/@azwebmaster/openapi-to-ts)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✨ Why This Generator?
+## Features
 
 - **🎯 Zero Config**: Works out of the box with any OpenAPI 3.0+ spec
 - **🔒 Type Safe**: Full TypeScript support with discriminated unions, nullable types, and schema composition
@@ -17,7 +17,7 @@ Transform your OpenAPI 3.0+ specifications into production-ready TypeScript clie
 
 ## 🚀 Quick Start
 
-### Install
+## Installation
 
 ```bash
 # For CLI usage (recommended)
