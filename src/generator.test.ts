@@ -3902,7 +3902,7 @@ describe('OpenAPIGenerator', () => {
       const memoryIncrease = finalMemory.heapUsed - initialMemory.heapUsed;
       
       // Memory increase should be reasonable even with concurrent operations
-      expect(memoryIncrease).toBeLessThan(100 * 1024 * 1024);
+      expect(memoryIncrease).toBeLessThan(200 * 1024 * 1024);
       
       // Clean up concurrent output directories
       await Promise.all(

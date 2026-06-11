@@ -1661,12 +1661,20 @@ export class OpenAPIGenerator {
         isExported: true,
       });
 
+      // Export an Operations type alias for external consumers (e.g. client property type)
+      const operationsTypeName = `${this.naming.toTypeName(rootNamespace)}Operations`;
+      namespaceFile.addTypeAlias({
+        name: operationsTypeName,
+        type: namespaceClassName,
+        isExported: true,
+      });
+
       // Add namespace property to main client class
       // Use toValidIdentifier for property names to ensure TypeScript-safe identifiers (camelCase)
       const namespacePropertyName = this.naming.toValidIdentifier(rootNamespace);
-      const namespaceTypeName = namespaceClassName;
+      const namespaceTypeName = operationsTypeName;
 
-      // Import class type separately as type-only
+      // Import Operations type alias as type-only
       mainFile.addImportDeclaration({
         moduleSpecifier: `./namespaces/${this.naming.toKebabCase(rootNamespace)}.js`,
         namedImports: [namespaceTypeName],
