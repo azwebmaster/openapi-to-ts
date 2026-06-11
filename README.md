@@ -23,13 +23,13 @@ Transform your OpenAPI 3.0+ specifications into production-ready TypeScript clie
 # For CLI usage (recommended)
 npm install -g @azwebmaster/openapi-to-ts
 
-# Or using bun
-bun install -g @azwebmaster/openapi-to-ts
+# Or using pnpm
+pnpm add -g @azwebmaster/openapi-to-ts
 
 # For programmatic usage in your project
 npm install @azwebmaster/openapi-to-ts
 # or
-bun add @azwebmaster/openapi-to-ts
+pnpm add @azwebmaster/openapi-to-ts
 ```
 
 ### CLI Usage (Recommended)
@@ -595,13 +595,13 @@ git clone https://github.com/azwebmaster/openapi-to-ts.git
 cd openapi-to-ts
 
 # Install dependencies
-bun install
+pnpm install
 
 # Run tests
-bun test
+pnpm test
 
 # Build the project
-bun run build
+pnpm run build
 ```
 
 ## 📄 License

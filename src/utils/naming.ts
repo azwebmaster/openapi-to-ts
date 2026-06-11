@@ -68,32 +68,42 @@ export class NamingUtils {
 
   /**
    * Converts an operation ID to a valid method name
+   * When operationId contains separators (/, .), only uses the last part as the method name
+   * @param operationId The operation ID to convert
+   * @param delimiter Optional delimiter to use. If not provided, auto-detects with priority: / > .
    */
-  toMethodName(operationId: string): string {
-    // OPTIMIZATION: Cache method name transformations
-    if (this.methodNameCache.has(operationId)) {
-      return this.methodNameCache.get(operationId)!;
+  toMethodName(operationId: string, delimiter?: string): string {
+    // OPTIMIZATION: Cache method name transformations (include delimiter in cache key)
+    const cacheKey = delimiter ? `${operationId}:${delimiter}` : operationId;
+    if (this.methodNameCache.has(cacheKey)) {
+      return this.methodNameCache.get(cacheKey)!;
     }
 
-    // Handle namespace patterns: if operationId looks like clean namespace/method pattern,
-    // take everything after the first separator. Otherwise, treat the whole thing as method name.
+    // Extract only the last part when there are separators (for namespaced operations)
     let methodPart = operationId;
     
-    // Check for both forward slash and dot separators
-    if (operationId.includes('/')) {
-      const parts = operationId.split('/');
-      // If first part looks like a clean namespace (alphanumeric), use everything after first slash
-      if (parts[0] && /^[a-zA-Z][a-zA-Z0-9]*$/.test(parts[0])) {
-        methodPart = parts.slice(1).join('/');
+    if (delimiter) {
+      // Use configured delimiter
+      const parts = operationId.split(delimiter);
+      if (parts.length > 1) {
+        methodPart = parts[parts.length - 1];
       }
-      // Otherwise treat the whole operationId as the method name
-    } else if (operationId.includes('.')) {
-      const parts = operationId.split('.');
-      // If first part looks like a clean namespace (alphanumeric), use everything after first dot
-      if (parts[0] && /^[a-zA-Z][a-zA-Z0-9]*$/.test(parts[0])) {
-        methodPart = parts.slice(1).join('.');
+    } else {
+      // Auto-detect with priority: / > .
+      const slashIndex = operationId.indexOf('/');
+      const dotIndex = operationId.indexOf('.');
+      
+      if (slashIndex !== -1 && (dotIndex === -1 || slashIndex < dotIndex)) {
+        const parts = operationId.split('/');
+        if (parts.length > 1) {
+          methodPart = parts[parts.length - 1];
+        }
+      } else if (dotIndex !== -1) {
+        const parts = operationId.split('.');
+        if (parts.length > 1) {
+          methodPart = parts[parts.length - 1];
+        }
       }
-      // Otherwise treat the whole operationId as the method name
     }
 
     const result = methodPart
@@ -104,7 +114,7 @@ export class NamingUtils {
       .replace(/^./, c => c.toLowerCase());
 
     // Cache the result
-    this.methodNameCache.set(operationId, result);
+    this.methodNameCache.set(cacheKey, result);
     return result;
   }
 

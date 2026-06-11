@@ -20,6 +20,7 @@ export interface APIConfig {
   typeOutput?: string;  // matches --type-output
   headers?: Record<string, string>;  // matches --header
   operationIds?: string[];
+  namespaceDelimiter?: string;  // matches --namespace-delimiter
 }
 
 export interface OTTConfig {
@@ -36,6 +37,7 @@ export interface GeneratorOptions {
   clientOutputMode?: ClientOutputMode;
   operationIds?: string[];
   noProgress?: boolean;
+  namespaceDelimiter?: string;  // If specified, uses this delimiter. Otherwise auto-detects with priority: / > .
 }
 
 export type OpenAPIDocument = OpenAPIV3.Document | OpenAPIV3_1.Document;

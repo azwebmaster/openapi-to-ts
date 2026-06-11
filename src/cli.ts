@@ -181,6 +181,7 @@ program
   .option('-c, --config <file>', 'Use custom configuration file', path.resolve(process.cwd(), '.ott.json'))
   .option('--api <name>', 'API name to generate from config (if multiple APIs in config)')
   .option('--operation-ids <ids>', 'Comma-separated list of operation IDs to include', [])
+  .option('--namespace-delimiter <delimiter>', 'Namespace delimiter to use (default: auto-detect with priority: / > .)')
   .option('--dry-run', 'Show what would be generated without writing files')
   .option('--no-progress', 'Disable progress messages')
   .action(async (spec: string, options) => {
@@ -201,21 +202,8 @@ program
         }
       }
 
-      // Determine whether the user provided generation options explicitly
-      // We inspect argv to distinguish defaults from explicit flags
-      const argv = process.argv.slice(2);
-      const generationFlags = new Set([
-        '-o', '--output',
-        '-n', '--namespace',
-        '-a', '--axios-instance',
-        '-t', '--type-output',
-        '-H', '--header',
-        '--operation-ids',
-        '--dry-run',
-      ]);
-      const hasExplicitGenFlags = argv.some(a => generationFlags.has(a));
-
       // Determine config file path
+      const argv = process.argv.slice(2);
       let configPath: string | null = null;
       const hasExplicitConfig = argv.includes('-c') || argv.includes('--config');
       if (hasExplicitConfig) {
@@ -414,7 +402,8 @@ program
           axiosInstance: finalAxiosInstance,
           typeOutput: options.typeOutput,
           headers: finalHeaders,
-          operationIds: finalOperationIds
+          operationIds: finalOperationIds,
+          namespaceDelimiter: options.namespaceDelimiter
         }];
       }
 
@@ -430,10 +419,6 @@ program
           }
           
           // Determine final configuration values for this API
-          const specIsUrl = isUrl(currentApiConfig.spec);
-          const currentSpec = configPath ? 
-            (specIsUrl ? currentApiConfig.spec : (path.isAbsolute(currentApiConfig.spec) ? currentApiConfig.spec : path.resolve(path.dirname(configPath), currentApiConfig.spec))) :
-            currentApiConfig.spec;
           const currentOutputDir = configPath ?
             (path.isAbsolute(currentApiConfig.output || './generated') ? 
               (currentApiConfig.output || './generated') : 
@@ -485,6 +470,7 @@ program
         let currentTypeOutputMode: TypeOutputMode;
         let currentHeaders: Record<string, string>;
         let currentOperationIds: string[] | undefined;
+        let currentNamespaceDelimiter: string | undefined;
         
         if (configPath) {
           // Using config file
@@ -514,6 +500,8 @@ program
           
           currentHeaders = { ...currentApiConfig.headers, ...headers };
           currentOperationIds = cliOperationIds.length > 0 ? cliOperationIds : currentApiConfig.operationIds;
+          // CLI option takes precedence over config file
+          currentNamespaceDelimiter = options.namespaceDelimiter || currentApiConfig.namespaceDelimiter;
         } else {
           // Traditional mode
           currentSpec = finalSpec!;
@@ -523,6 +511,7 @@ program
           currentTypeOutputMode = finalTypeOutputMode!;
           currentHeaders = finalHeaders!;
           currentOperationIds = finalOperationIds;
+          currentNamespaceDelimiter = options.namespaceDelimiter;
         }
         
         await generateFromSpec({
@@ -533,7 +522,8 @@ program
           typeOutputMode: currentTypeOutputMode,
           headers: Object.keys(currentHeaders).length > 0 ? currentHeaders : undefined,
           operationIds: currentOperationIds,
-          noProgress: options.noProgress || false
+          noProgress: options.noProgress || false,
+          namespaceDelimiter: currentNamespaceDelimiter
         });
         
         if (apisToGenerate.length > 1) {
