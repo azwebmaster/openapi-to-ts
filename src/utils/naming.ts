@@ -68,7 +68,6 @@ export class NamingUtils {
 
   /**
    * Converts an operation ID to a valid method name
-   * When operationId contains separators (/, .), only uses the last part as the method name
    * @param operationId The operation ID to convert
    * @param delimiter Optional delimiter to use. If not provided, auto-detects with priority: / > .
    */
@@ -79,30 +78,26 @@ export class NamingUtils {
       return this.methodNameCache.get(cacheKey)!;
     }
 
-    // Extract only the last part when there are separators (for namespaced operations)
+    // Handle namespace patterns: if operationId looks like clean namespace/method pattern,
+    // drop the first (namespace) part and combine the rest.
     let methodPart = operationId;
-    
+
     if (delimiter) {
-      // Use configured delimiter
       const parts = operationId.split(delimiter);
       if (parts.length > 1) {
-        methodPart = parts[parts.length - 1];
+        methodPart = parts.slice(1).join(delimiter);
       }
-    } else {
-      // Auto-detect with priority: / > .
-      const slashIndex = operationId.indexOf('/');
-      const dotIndex = operationId.indexOf('.');
-      
-      if (slashIndex !== -1 && (dotIndex === -1 || slashIndex < dotIndex)) {
-        const parts = operationId.split('/');
-        if (parts.length > 1) {
-          methodPart = parts[parts.length - 1];
-        }
-      } else if (dotIndex !== -1) {
-        const parts = operationId.split('.');
-        if (parts.length > 1) {
-          methodPart = parts[parts.length - 1];
-        }
+    } else if (operationId.includes('/')) {
+      const parts = operationId.split('/');
+      // Only drop first part when it looks like a clean namespace (alphanumeric)
+      if (parts[0] && /^[a-zA-Z][a-zA-Z0-9]*$/.test(parts[0])) {
+        methodPart = parts.slice(1).join('/');
+      }
+    } else if (operationId.includes('.')) {
+      const parts = operationId.split('.');
+      // If first part looks like a clean namespace (alphanumeric), drop it
+      if (parts[0] && /^[a-zA-Z][a-zA-Z0-9]*$/.test(parts[0])) {
+        methodPart = parts.slice(1).join('.');
       }
     }
 
