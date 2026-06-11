@@ -440,7 +440,7 @@ export class OpenAPIGenerator {
       // Now TypeScript knows s is SchemaObject
       if (s.anyOf || s.oneOf || s.allOf) {
         const schemas = s.anyOf || s.oneOf || s.allOf;
-        schemas.forEach((subSchema) => extractFromSchema(subSchema));
+        schemas!.forEach((subSchema) => extractFromSchema(subSchema));
       }
 
       if (s.type === 'array' && 'items' in s && s.items) {
@@ -538,8 +538,8 @@ export class OpenAPIGenerator {
   private extractAndGenerateNestedInlineTypes(
     file: SourceFile,
     parentTypeName: string,
-    schema: OpenAPIV3.SchemaObject,
-    visited: Set<OpenAPIV3.SchemaObject> = new Set()
+    schema: OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject,
+    visited: Set<OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject> = new Set()
   ): void {
     if (!schema || typeof schema !== 'object' || visited.has(schema)) {
       return;
@@ -547,16 +547,19 @@ export class OpenAPIGenerator {
     visited.add(schema);
 
     // Skip if it's a reference (already has a name)
-    if (schema.$ref) {
+    if ('$ref' in schema) {
       return;
     }
 
+    // Now TypeScript knows schema is SchemaObject
+    const schemaObj = schema as OpenAPIV3.SchemaObject;
+
     // Handle composition schemas
-    if (schema.anyOf || schema.oneOf || schema.allOf) {
-      const schemas = schema.anyOf || schema.oneOf || schema.allOf;
-      schemas.forEach((s: any, index: number) => {
+    if (schemaObj.anyOf || schemaObj.oneOf || schemaObj.allOf) {
+      const schemas = schemaObj.anyOf || schemaObj.oneOf || schemaObj.allOf;
+      schemas!.forEach((s: any, index: number) => {
         if (!s.$ref && (s.type === 'object' || s.properties)) {
-          const nestedTypeName = `${parentTypeName}${this.naming.toTypeName(schema.anyOf ? 'AnyOf' : schema.oneOf ? 'OneOf' : 'AllOf')}${index}`;
+          const nestedTypeName = `${parentTypeName}${this.naming.toTypeName(schemaObj.anyOf ? 'AnyOf' : schemaObj.oneOf ? 'OneOf' : 'AllOf')}${index}`;
           if (!file.getTypeAlias(nestedTypeName)) {
             this.generateTypeFromSchema(file, nestedTypeName, s);
             this.extractAndGenerateNestedInlineTypes(file, nestedTypeName, s, visited);
@@ -569,22 +572,23 @@ export class OpenAPIGenerator {
     }
 
     // Handle array items
-    if (schema.type === 'array' && schema.items) {
-      const itemSchema = schema.items;
-      if (!itemSchema.$ref && (itemSchema.type === 'object' || itemSchema.properties)) {
+    if (schemaObj.type === 'array' && schemaObj.items) {
+      const itemSchema = schemaObj.items;
+      const itemSchemaObj = !('$ref' in itemSchema) ? itemSchema as OpenAPIV3.SchemaObject : null;
+      if (itemSchemaObj && (itemSchemaObj.type === 'object' || itemSchemaObj.properties)) {
         const nestedTypeName = `${parentTypeName}Item`;
         if (!file.getTypeAlias(nestedTypeName)) {
           this.generateTypeFromSchema(file, nestedTypeName, itemSchema);
           this.extractAndGenerateNestedInlineTypes(file, nestedTypeName, itemSchema, visited);
         }
-      } else if (!itemSchema.$ref) {
+      } else if (!('$ref' in itemSchema)) {
         this.extractAndGenerateNestedInlineTypes(file, parentTypeName, itemSchema, visited);
       }
     }
 
     // Handle object properties
-    if ((schema.type === 'object' || schema.properties) && schema.properties) {
-      const properties = schema.properties;
+    if ((schemaObj.type === 'object' || schemaObj.properties) && schemaObj.properties) {
+      const properties = schemaObj.properties;
       for (const [propName, propSchema] of Object.entries(properties)) {
         const prop = propSchema as any;
         
@@ -620,15 +624,19 @@ export class OpenAPIGenerator {
     }
 
     // Handle additionalProperties
-    if (schema.additionalProperties && typeof schema.additionalProperties === 'object' && !schema.additionalProperties.$ref) {
-      if (schema.additionalProperties.type === 'object' || schema.additionalProperties.properties) {
-        const nestedTypeName = `${parentTypeName}AdditionalProperty`;
-        if (!file.getTypeAlias(nestedTypeName)) {
-          this.generateTypeFromSchema(file, nestedTypeName, schema.additionalProperties);
-          this.extractAndGenerateNestedInlineTypes(file, nestedTypeName, schema.additionalProperties, visited);
+    if (schemaObj.additionalProperties && typeof schemaObj.additionalProperties === 'object') {
+      const addlProps = schemaObj.additionalProperties;
+      if (!('$ref' in addlProps)) {
+        const addlPropsObj = addlProps as OpenAPIV3.SchemaObject;
+        if (addlPropsObj.type === 'object' || addlPropsObj.properties) {
+          const nestedTypeName = `${parentTypeName}AdditionalProperty`;
+          if (!file.getTypeAlias(nestedTypeName)) {
+            this.generateTypeFromSchema(file, nestedTypeName, addlProps);
+            this.extractAndGenerateNestedInlineTypes(file, nestedTypeName, addlProps, visited);
+          }
+        } else {
+          this.extractAndGenerateNestedInlineTypes(file, parentTypeName, addlProps, visited);
         }
-      } else {
-        this.extractAndGenerateNestedInlineTypes(file, parentTypeName, schema.additionalProperties, visited);
       }
     }
 
@@ -642,43 +650,49 @@ export class OpenAPIGenerator {
     if (!schema) return 'unknown';
 
     // If it's a reference, use the referenced type name
-    if (schema.$ref) {
+    if ('$ref' in schema) {
       const refName = schema.$ref.split('/').pop();
-      return this.naming.toTypeName(refName);
+      return this.naming.toTypeName(refName ?? '');
     }
 
+    // Now TypeScript knows schema is SchemaObject
+    const schemaObj = schema as OpenAPIV3.SchemaObject;
+
     // For inline object schemas, generate formatted inline type with JSDoc comments
-    if ((schema.type === 'object' || schema.properties) && !schema.$ref && !visited.has(schema)) {
-      return this.generateInlineObjectTypeWithJSDoc(schema, visited);
+    if ((schemaObj.type === 'object' || schemaObj.properties) && !visited.has(schemaObj)) {
+      return this.generateInlineObjectTypeWithJSDoc(schemaObj, visited);
     }
 
     // For array items that are inline objects
-    if (schema.type === 'array' && schema.items) {
-      const itemSchema = schema.items;
-      if (!itemSchema.$ref && (itemSchema.type === 'object' || itemSchema.properties)) {
-        return `Array<${this.generateInlineObjectTypeWithJSDoc(itemSchema, visited)}>`;
+    if (schemaObj.type === 'array' && schemaObj.items) {
+      const itemSchema = schemaObj.items;
+      if (!('$ref' in itemSchema)) {
+        const itemSchemaObj = itemSchema as OpenAPIV3.SchemaObject;
+        if (itemSchemaObj.type === 'object' || itemSchemaObj.properties) {
+          return `Array<${this.generateInlineObjectTypeWithJSDoc(itemSchemaObj, visited)}>`;
+        }
       }
       // Fall back for non-object array items
       return `Array<${this.getTypeStringWithNestedJSDoc(itemSchema, visited)}>`;
     }
 
     // Handle composition schemas
-    if (schema.anyOf) {
-      const types = schema.anyOf.map((s: any) => this.getTypeStringWithNestedJSDoc(s, visited));
+    if (schemaObj.anyOf) {
+      const types = schemaObj.anyOf.map((s: any) => this.getTypeStringWithNestedJSDoc(s, visited));
       return `(${types.join(' | ')})`;
     }
-    if (schema.oneOf) {
-      const types = schema.oneOf.map((s: any) => this.getTypeStringWithNestedJSDoc(s, visited));
+    if (schemaObj.oneOf) {
+      const types = schemaObj.oneOf.map((s: any) => this.getTypeStringWithNestedJSDoc(s, visited));
       return `(${types.join(' | ')})`;
     }
-    if (schema.allOf) {
-      const types = schema.allOf.map((s: any) => this.getTypeStringWithNestedJSDoc(s, visited));
+    if (schemaObj.allOf) {
+      const types = schemaObj.allOf.map((s: any) => this.getTypeStringWithNestedJSDoc(s, visited));
       return `(${types.join(' & ')})`;
     }
 
     // Handle nullable flag
-    const baseType = this.getBaseTypeString(schema);
-    if (schema.nullable === true) {
+    const baseType = this.getBaseTypeString(schemaObj);
+    if (schemaObj.nullable === true) {
       return `(${baseType} | null)`;
     }
 
@@ -729,12 +743,14 @@ export class OpenAPIGenerator {
    */
 
   private generateTypeFromSchema(file: SourceFile, name: string, schema: OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject): void {
+    if ('$ref' in schema) { return; }
+    const schemaObj = schema as OpenAPIV3.SchemaObject;
     // Handle composition schemas first
-    if (schema.anyOf || schema.oneOf || schema.allOf) {
-      const typeString = this.getTypeString(schema);
+    if (schemaObj.anyOf || schemaObj.oneOf || schemaObj.allOf) {
+      const typeString = this.getTypeString(schemaObj);
       // For types, use description directly from schema
-      const docComment = schema.description 
-        ? this.jsdoc.escapeBackticks(schema.description)
+      const docComment = schemaObj.description
+        ? this.jsdoc.escapeBackticks(schemaObj.description)
         : undefined;
 
       const typeAlias = file.addTypeAlias({
@@ -753,11 +769,11 @@ export class OpenAPIGenerator {
     }
 
     // Handle discriminated unions
-    if (schema.discriminator) {
-      const typeString = this.getTypeString(schema);
+    if (schemaObj.discriminator) {
+      const typeString = this.getTypeString(schemaObj);
       // For types, use description directly from schema
-      const docComment = schema.description 
-        ? this.jsdoc.escapeBackticks(schema.description)
+      const docComment = schemaObj.description
+        ? this.jsdoc.escapeBackticks(schemaObj.description)
         : undefined;
 
       const typeAlias = file.addTypeAlias({
@@ -775,16 +791,16 @@ export class OpenAPIGenerator {
       return;
     }
 
-    if (schema.type === 'object' || schema.properties) {
+    if (schemaObj.type === 'object' || schemaObj.properties) {
       const typeName = this.naming.toTypeName(name);
       // For types, use description directly from schema, don't add "property" suffix
-      const docComment = schema.description 
-        ? this.jsdoc.escapeBackticks(schema.description)
+      const docComment = schemaObj.description
+        ? this.jsdoc.escapeBackticks(schemaObj.description)
         : undefined;
 
       // Build object type literal with JSDoc comments on properties
-      const properties = schema.properties || {};
-      const required = schema.required || [];
+      const properties = schemaObj.properties || {};
+      const required = schemaObj.required || [];
       const requiredSet = new Set(required);
 
       const propStrings: string[] = [];
@@ -812,8 +828,9 @@ export class OpenAPIGenerator {
       let typeString = `{\n${formattedProps.join('\n')}\n}`;
 
       // Handle allOf inheritance (intersection types)
-      if (schema.allOf) {
-        const inheritanceTypes = schema.allOf
+      const allOfSchemas = (schema as any).allOf as (OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject)[] | undefined;
+      if (allOfSchemas) {
+        const inheritanceTypes = allOfSchemas
           .filter((s: any) => s.$ref)
           .map((s: any) => this.getTypeString(s));
 
@@ -891,20 +908,24 @@ export class OpenAPIGenerator {
 
     // Create a cache key from the schema
     // For $ref, use the ref directly as the key
-    if (schema.$ref) {
+    if ('$ref' in schema) {
       const cacheKey = `ref:${schema.$ref}`;
       if (this.typeStringCache.has(cacheKey)) {
         return this.typeStringCache.get(cacheKey)!;
       }
       const refName = schema.$ref.split('/').pop();
-      const result = this.naming.toTypeName(refName);
+      const result = this.naming.toTypeName(refName ?? '');
       this.typeStringCache.set(cacheKey, result);
       return result;
     }
 
+    // Now TypeScript knows schema is SchemaObject
+    const schemaObj = schema as OpenAPIV3.SchemaObject;
+    const schemaAny = schema as any;
+
     // For other schemas, use JSON string as cache key (excluding $ref)
     // We need to be careful with circular references, so we'll cache by structure
-    const schemaKey = this.getSchemaCacheKey(schema);
+    const schemaKey = this.getSchemaCacheKey(schemaObj);
     if (schemaKey && this.typeStringCache.has(schemaKey)) {
       return this.typeStringCache.get(schemaKey)!;
     }
@@ -912,34 +933,34 @@ export class OpenAPIGenerator {
     let result: string;
 
     // Handle composition schemas
-    if (schema.anyOf) {
-      const types = schema.anyOf.map((s: any) => this.getTypeString(s));
+    if (schemaObj.anyOf) {
+      const types = schemaObj.anyOf.map((s: any) => this.getTypeString(s));
       result = `(${types.join(' | ')})`;
-    } else if (schema.oneOf) {
-      const types = schema.oneOf.map((s: any) => this.getTypeString(s));
+    } else if (schemaObj.oneOf) {
+      const types = schemaObj.oneOf.map((s: any) => this.getTypeString(s));
       // Handle discriminated unions
-      if (schema.discriminator) {
-        result = this.generateDiscriminatedUnion(schema, types);
+      if (schemaObj.discriminator) {
+        result = this.generateDiscriminatedUnion(schemaObj, types);
       } else {
         result = `(${types.join(' | ')})`;
       }
-    } else if (schema.allOf) {
-      const types = schema.allOf.map((s: any) => this.getTypeString(s));
+    } else if (schemaObj.allOf) {
+      const types = schemaObj.allOf.map((s: any) => this.getTypeString(s));
       result = `(${types.join(' & ')})`;
-    } else if (schema.type && Array.isArray(schema.type)) {
+    } else if (schemaObj.type && Array.isArray(schemaObj.type)) {
       // Handle nullable types (OpenAPI 3.1)
-      const types = schema.type.map((t: string) => {
+      const types = (schemaObj.type as string[]).map((t: string) => {
         if (t === 'null') return 'null';
-        return this.getPrimitiveType(t, schema);
+        return this.getPrimitiveType(t, schemaObj);
       });
       result = types.join(' | ');
-    } else if (schema.const !== undefined) {
+    } else if (schemaAny.const !== undefined) {
       // Handle const values (OpenAPI 3.1)
-      result = this.handleConst(schema);
+      result = this.handleConst(schemaAny);
     } else {
       // Handle nullable flag (OpenAPI 3.0)
-      const baseType = this.getBaseTypeString(schema);
-      if (schema.nullable === true) {
+      const baseType = this.getBaseTypeString(schemaObj);
+      if (schemaAny.nullable === true) {
         result = `(${baseType} | null)`;
       } else {
         result = baseType;
@@ -967,10 +988,11 @@ export class OpenAPIGenerator {
     // For simple schemas, create a deterministic key
     const parts: string[] = [];
     
+    const schemaAny = schema as any;
     if (schema.type) parts.push(`type:${schema.type}`);
     if (schema.enum) parts.push(`enum:${JSON.stringify(schema.enum)}`);
-    if (schema.const !== undefined) parts.push(`const:${JSON.stringify(schema.const)}`);
-    if (schema.nullable !== undefined) parts.push(`nullable:${schema.nullable}`);
+    if (schemaAny.const !== undefined) parts.push(`const:${JSON.stringify(schemaAny.const)}`);
+    if (schemaAny.nullable !== undefined) parts.push(`nullable:${schemaAny.nullable}`);
     if (schema.format) parts.push(`format:${schema.format}`);
     
     // For objects with properties, include property names but not full traversal
@@ -983,12 +1005,12 @@ export class OpenAPIGenerator {
     }
     
     // For arrays, include items type hint
-    if (schema.type === 'array' && schema.items) {
-      // Only include a hint, not full traversal to avoid circular refs
-      if (schema.items.$ref) {
-        parts.push(`items:${schema.items.$ref}`);
-      } else if (schema.items.type) {
-        parts.push(`items:${schema.items.type}`);
+    if (schema.type === 'array' && schemaAny.items) {
+      const items = schemaAny.items;
+      if (items.$ref) {
+        parts.push(`items:${items.$ref}`);
+      } else if (items.type) {
+        parts.push(`items:${items.type}`);
       }
     }
 
@@ -999,6 +1021,7 @@ export class OpenAPIGenerator {
   }
 
   public getBaseTypeString(schema: OpenAPIV3.SchemaObject): string {
+    const schemaAny = schema as any;
     switch (schema.type) {
       case 'string':
         return schema.enum
@@ -1012,7 +1035,7 @@ export class OpenAPIGenerator {
       case 'boolean':
         return 'boolean';
       case 'array':
-        return `Array<${schema.items ? this.getTypeString(schema.items) : 'unknown'}>`;
+        return `Array<${schemaAny.items ? this.getTypeString(schemaAny.items) : 'unknown'}>`;
       case 'object':
         if (schema.properties) {
           // Inline object type
@@ -1038,6 +1061,7 @@ export class OpenAPIGenerator {
   }
 
   public getPrimitiveType(type: string, schema: OpenAPIV3.SchemaObject): string {
+    const schemaAny = schema as any;
     switch (type) {
       case 'string':
         return schema.enum
@@ -1049,7 +1073,7 @@ export class OpenAPIGenerator {
       case 'boolean':
         return 'boolean';
       case 'array':
-        return `Array<${schema.items ? this.getTypeString(schema.items) : 'unknown'}>`;
+        return `Array<${schemaAny.items ? this.getTypeString(schemaAny.items) : 'unknown'}>`;
       case 'object':
         return 'Record<string, unknown>';
       default:
@@ -1082,7 +1106,7 @@ export class OpenAPIGenerator {
     return types.join(' | ');
   }
 
-  public handleConst(schema: OpenAPIV3.SchemaObject): string {
+  public handleConst(schema: any): string {
     if (schema.const !== undefined) {
       if (typeof schema.const === 'string') {
         return `"${schema.const}"`;
