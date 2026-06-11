@@ -2,7 +2,7 @@ import SwaggerParser from '@apidevtools/swagger-parser';
 import { Project, SourceFile, VariableDeclarationKind } from 'ts-morph';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
+import { OpenAPIV3 } from 'openapi-types';
 import * as https from 'https';
 import * as http from 'http';
 import { ProgressIndicator } from './utils/progress.js';
@@ -11,7 +11,6 @@ import { JSDocUtils } from './utils/jsdoc.js';
 import {
   TypeOutputMode,
   ClientOutputMode,
-  APIConfig,
   OTTConfig,
   GeneratorOptions,
   OpenAPIDocument,
@@ -27,11 +26,8 @@ import {
   DEFAULT_NAMESPACE,
 } from './generator/constants.js';
 import { SchemaResolver } from './generator/schema-resolver.js';
-import { assertApiLoaded, assertApiHasPaths, isInlineSchema } from './generator/validation.js';
+import { assertApiLoaded, assertApiHasPaths } from './generator/validation.js';
 import type {
-  ResolvedParameter,
-  OperationMetadata,
-  OperationWithMetadata,
   AllSchemas,
 } from './generator/types-internal.js';
 
@@ -144,7 +140,7 @@ export class OpenAPIGenerator {
         }
       };
 
-      const req = client.get(url, options, (res) => {
+      const req = client.get(url, options, (res: http.IncomingMessage) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           // Handle redirects
           this.fetchFromUrl(res.headers.location, headers).then(resolve).catch(reject);
@@ -157,7 +153,7 @@ export class OpenAPIGenerator {
         }
 
         let data = '';
-        res.on('data', (chunk) => {
+        res.on('data', (chunk: Buffer) => {
           data += chunk;
         });
 
@@ -178,7 +174,7 @@ export class OpenAPIGenerator {
         });
       });
 
-      req.on('error', (error) => {
+      req.on('error', (error: Error) => {
         reject(new Error(`Failed to fetch OpenAPI spec from ${url}: ${error.message}`));
       });
 
@@ -423,41 +419,6 @@ export class OpenAPIGenerator {
     }
     
     this.progress.complete();
-  }
-
-  private extractDependencies(schema: OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject): string[] {
-    const dependencies = new Set<string>();
-
-    const extractFromSchema = (s: OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject) => {
-      if (!s) return;
-
-      if ('$ref' in s) {
-        const refName = s.$ref.split('/').pop();
-        if (refName) dependencies.add(refName);
-        return;
-      }
-
-      // Now TypeScript knows s is SchemaObject
-      if (s.anyOf || s.oneOf || s.allOf) {
-        const schemas = s.anyOf || s.oneOf || s.allOf;
-        schemas!.forEach((subSchema) => extractFromSchema(subSchema));
-      }
-
-      if (s.type === 'array' && 'items' in s && s.items) {
-        extractFromSchema(s.items);
-      }
-
-      if ('properties' in s && s.properties) {
-        Object.values(s.properties).forEach((prop) => extractFromSchema(prop));
-      }
-
-      if ('additionalProperties' in s && s.additionalProperties && typeof s.additionalProperties === 'object') {
-        extractFromSchema(s.additionalProperties);
-      }
-    };
-
-    extractFromSchema(schema);
-    return Array.from(dependencies);
   }
 
   private groupSchemasByTag(schemas: Record<string, any>): Record<string, Record<string, any>> {
@@ -1554,13 +1515,11 @@ export class OpenAPIGenerator {
       const methodSignatures: string[] = [];
       const properties: string[] = [];
 
-      let namespaceTree: any = null;
       if (hasNested) {
         // Handle nested namespaces
-        const { methods, props, tree } = this.buildNestedNamespaceTypeForSplit(namespaceClass, rootNamespace, operations, separator, namespaceFile, allReferencedTypes);
+        const { methods, props } = this.buildNestedNamespaceTypeForSplit(namespaceClass, rootNamespace, operations, separator, namespaceFile, allReferencedTypes);
         methodSignatures.push(...methods);
         properties.push(...props);
-        namespaceTree = tree;
         
         // Add collected referenced types to namespaceUsedTypes
         allReferencedTypes.forEach(t => namespaceUsedTypes.push(t));
@@ -1731,7 +1690,7 @@ export class OpenAPIGenerator {
     
     // Pre-generate all request body types before building method signatures
     // This ensures ts-morph recognizes the types when serializing method signatures
-    for (const { path, method, operation, operationId } of operations) {
+    for (const { operation, operationId } of operations) {
       const requestBody = operation.requestBody;
       if (requestBody) {
         const contentType = Object.keys(requestBody.content || {})[0];
@@ -1763,7 +1722,7 @@ export class OpenAPIGenerator {
         }
       }
     }
-    
+
     // Build nested namespace tree structure
     const tree = this.buildNamespaceTreeForSplit(operations, separator);
     
@@ -1776,40 +1735,6 @@ export class OpenAPIGenerator {
     
     return { methods: methodSignatures, props: properties, tree };
   }
-  
-  private generateNestedTypeString(
-    tree: any,
-    file: SourceFile,
-    operations: Array<{ path: string; method: string; operation: any; operationId: string; metadata?: any }>,
-    separator: string
-  ): string {
-    const generateTypeLevel = (currentTree: any, indent: string = '    '): string => {
-      const parts: string[] = [];
-      
-      // Add methods at this level
-      if (currentTree._methods) {
-        for (const method of currentTree._methods) {
-          const { path: opPath, method: opMethod, operation, operationId } = method.operation;
-          const methodSig = this.buildMethodSignatureString(file, opPath, opMethod, operation, operationId);
-          parts.push(`${indent}  ${methodSig}`);
-        }
-      }
-      
-      // Add sub-namespaces
-      for (const [key, value] of Object.entries(currentTree)) {
-        if (key === '_methods') continue;
-        
-        const subType = generateTypeLevel(value as any, indent + '  ');
-        parts.push(`${indent}  ${key}: {\n${subType}\n${indent}  }`);
-      }
-      
-      return parts.join(';\n');
-    };
-    
-    const typeContent = generateTypeLevel(tree);
-    return `{\n${typeContent}\n    }`;
-  }
-  
   private buildNamespaceTreeForSplit(
     operations: Array<{ path: string; method: string; operation: any; operationId: string; metadata?: any }>,
     separator: string
@@ -1856,14 +1781,14 @@ export class OpenAPIGenerator {
     tree: any,
     file: SourceFile,
     rootNamespace: string,
-    separator: string,
+    _separator: string,
     methodSignatures: string[],
-    properties: string[],
+    _properties: string[],
     operations: Array<{ path: string; method: string; operation: any; operationId: string; metadata?: any }>,
     allReferencedTypes: Set<string>
   ): void {
     // Generate classes for each namespace level recursively
-    const generateNamespaceClass = (currentTree: any, namespacePath: string[], parentClass: any): string => {
+    const generateNamespaceClass = (currentTree: any, namespacePath: string[], _parentClass: any): string => {
       const className = this.getNamespaceClassName(namespacePath);
       
       // Check if class already exists
@@ -1912,7 +1837,6 @@ export class OpenAPIGenerator {
       });
       
       const constructorStatements: string[] = [];
-      const classProperties: string[] = [];
       const typeProperties: string[] = [];
       
       // Add methods at this level
@@ -2188,13 +2112,6 @@ export class OpenAPIGenerator {
    * Extracts TypeScript type names from a generated type string.
    * Handles complex type expressions like "Integration & { ... }", "Array<Type>", etc.
    * This ensures we don't miss types that are referenced in complex compositions.
-   * 
-   * @deprecated DO NOT use this method for tracking types for imports.
-   * Regex-based type extraction is unreliable and error-prone.
-   * Only track types that appear in generated TypeScript code during schema traversal.
-   * This method is kept for backward compatibility but should not be used for import tracking.
-   * 
-   * @internal This method may be removed in a future version.
    */
   private extractTypeNamesFromTypeString(typeString: string, usedTypes: Set<string>): void {
     if (!typeString || typeof typeString !== 'string') {
@@ -2238,26 +2155,6 @@ export class OpenAPIGenerator {
     // and edge cases where references might still exist (e.g., external refs not dereferenced).
     if (!this.api) return null;
     return this.schemaResolver.resolveParameterReference(ref, this.api);
-  }
-
-  private groupPathsByTag(): Record<string, Array<{ path: string; method: string; operation: any }>> {
-    const groups: Record<string, Array<{ path: string; method: string; operation: any }>> = {};
-
-    if (!this.api || !this.api.paths) return groups;
-
-    for (const [path, pathItem] of Object.entries(this.api.paths)) {
-      const item = pathItem as any;
-      for (const method of HTTP_METHODS) {
-        if (item[method]) {
-          const operation = item[method];
-          const tag = operation.tags?.[0] || 'default';
-          if (!groups[tag]) groups[tag] = [];
-          groups[tag].push({ path, method, operation });
-        }
-      }
-    }
-
-    return groups;
   }
 
   private groupOperationsByNamespace(): Record<string, Array<{ path: string; method: string; operation: any; operationId: string; metadata: any }>> {
@@ -2406,7 +2303,7 @@ export class OpenAPIGenerator {
 
     // Pre-generate all request body types before adding method signatures
     // This ensures ts-morph recognizes the types when serializing method signatures
-    for (const { path, method, operation, operationId } of operations) {
+    for (const { operation, operationId } of operations) {
       const requestBody = operation.requestBody;
       if (requestBody) {
         const contentType = Object.keys(requestBody.content || {})[0];
@@ -2446,7 +2343,7 @@ export class OpenAPIGenerator {
 
     // Build method signature strings for the type
     const methodSignatures: string[] = [];
-    for (const { path, method, operation, operationId, metadata } of operations) {
+    for (const { path, method, operation, operationId } of operations) {
       // Build method signature string
       const methodSig = this.buildMethodSignatureString(file, path, method, operation, operationId);
       methodSignatures.push(methodSig);
@@ -2467,7 +2364,6 @@ export class OpenAPIGenerator {
     // Initialize the namespace property in the constructor
     const constructor = classDeclaration.getConstructors()[0];
     if (constructor) {
-      const statements = constructor.getStatements();
       const initStatement = `this.${sanitizedNamespace} = {
 ${operations.map(({ operationId }) => {
         const methodName = this.naming.toMethodName(operationId);
@@ -2487,7 +2383,7 @@ ${operations.map(({ operationId }) => {
   }
 
   private generateNestedNamespace(classDeclaration: any, namespacePath: string, operations: Array<{ path: string; method: string; operation: any; operationId: string; metadata?: any }>, referencedTypes?: Set<string>, inlineTypes?: Set<string>): void {
-    const file = classDeclaration.getSourceFile();
+    const _file = classDeclaration.getSourceFile();
     
     // OPTIMIZATION: Use pre-computed separator and parts from metadata if available
     const firstOp = operations[0];
@@ -2608,7 +2504,7 @@ ${operations.map(({ operationId }) => {
     }
   }
 
-  private createNestedInterfaces(file: SourceFile, namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string; metadata?: any }>, separator: string = '/'): void {
+  private createNestedInterfaces(_file: SourceFile, _namespaceParts: string[], _operations: Array<{ path: string; method: string; operation: any; operationId: string; metadata?: any }>, _separator: string = '/'): void {
     // This method is no longer needed since we're using classes directly instead of Operations types
     // Keeping it as a no-op for now in case it's called, but it doesn't generate anything
   }
@@ -2692,97 +2588,6 @@ ${operations.map(({ operationId }) => {
     // Build method signature string
     const paramStrings = methodParams.map(p => `${p.name}${p.hasQuestionToken ? '?' : ''}: ${p.type}`);
     return `${methodName}(${paramStrings.join(', ')}): Promise<AxiosResponse<${responseType}>>`;
-  }
-
-  private addMethodSignatureToInterface(interfaceDeclaration: any, path: string, method: string, operation: any, operationId: string): void {
-    const file = interfaceDeclaration.getSourceFile();
-    const methodSignature = this.buildMethodSignatureString(file, path, method, operation, operationId);
-    const methodName = this.naming.toMethodName(operationId);
-    
-    // Parse the method signature to extract parameters and return type
-    const match = methodSignature.match(/^(\w+)\((.*?)\):\s*(.+)$/);
-    if (!match) {
-      // Fallback: add method using the old approach
-      const parameters = operation.parameters || [];
-      const requestBody = operation.requestBody;
-      const methodParams: any[] = [];
-      const allParams: any[] = [];
-
-      for (const param of parameters) {
-        let resolvedParam = param;
-        if (param.$ref) {
-          resolvedParam = this.resolveParameterReference(param.$ref);
-          if (!resolvedParam) continue;
-        }
-        if (!resolvedParam.name || resolvedParam.name.trim() === '') continue;
-
-        const paramName = this.naming.toPropertyName(resolvedParam.name);
-        const paramSchema = this.getParameterSchema(resolvedParam);
-        const paramType = this.getTypeString(paramSchema);
-        allParams.push({
-          name: paramName,
-          type: paramType,
-          required: resolvedParam.required,
-        });
-      }
-
-      const hasParams = allParams.length > 0;
-      if (hasParams) {
-        const paramsTypeName = `${this.naming.toTypeName(methodName)}Params`;
-        this.generateParameterInterface(file, paramsTypeName, allParams);
-        const hasRequiredParams = allParams.some(p => p.required);
-        methodParams.push({
-          name: 'params',
-          type: paramsTypeName,
-          hasQuestionToken: !hasRequiredParams,
-        });
-      }
-
-      if (requestBody) {
-        const contentType = Object.keys(requestBody.content || {})[0];
-        const schema = requestBody.content?.[contentType]?.schema;
-        const dataTypeName = this.generateRequestBodyType(file, schema, methodName);
-        methodParams.push({
-          name: 'data',
-          type: dataTypeName,
-          hasQuestionToken: !requestBody.required,
-        });
-      }
-
-      methodParams.push({
-        name: 'config',
-        type: 'AxiosRequestConfig',
-        hasQuestionToken: true,
-      });
-
-      const responseType = this.getResponseType(operation.responses, file, methodName);
-      interfaceDeclaration.addMethod({
-        name: methodName,
-        parameters: methodParams,
-        returnType: `Promise<AxiosResponse<${responseType}>>`,
-        docs: operation.summary ? [{ description: operation.summary }] : undefined,
-      });
-      return;
-    }
-
-    // This method is deprecated - we should use buildMethodSignatureString instead
-    // But keeping it for backward compatibility with existing code
-    const [, , paramString, returnType] = match;
-    const params = paramString ? paramString.split(',').map(p => {
-      const [name, type] = p.split(':').map(s => s.trim());
-      return {
-        name: name.replace('?', ''),
-        type: type,
-        hasQuestionToken: name.includes('?'),
-      };
-    }) : [];
-
-    interfaceDeclaration.addMethod({
-      name: methodName,
-      parameters: params,
-      returnType: returnType,
-      docs: operation.summary ? [{ description: operation.summary }] : undefined,
-    });
   }
 
   private buildNamespaceInitialization(namespaceParts: string[], operations: Array<{ path: string; method: string; operation: any; operationId: string; metadata?: any }>, separator: string = '/'): string {
