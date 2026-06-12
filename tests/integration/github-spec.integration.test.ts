@@ -57,7 +57,8 @@ describe('GitHub spec integration', () => {
         'utf-8'
       );
 
-      const tsc = spawnSync('bunx', ['tsc', '--noEmit', '-p', tsconfigPath], {
+      const tscBin = path.join(__dirname, '../../node_modules/.bin/tsc');
+      const tsc = spawnSync(tscBin, ['--noEmit', '-p', tsconfigPath], {
         cwd: testOutputDir,
         encoding: 'utf-8',
       });
