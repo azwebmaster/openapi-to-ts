@@ -38,7 +38,7 @@ bun run test
 
 Run tests in watch mode:
 ```bash
-bun run test --watch
+bun run test:watch
 ```
 
 ### Building
@@ -55,10 +55,21 @@ Test the CLI locally:
 # Build first
 bun run build
 
-# Test CLI commands
+# Test CLI commands (also available as `ott`)
 bun run cli generate path/to/spec.yaml
 bun run cli info path/to/spec.yaml
+bun run cli init path/to/spec.yaml
+bun run cli list
 bun run cli examples
+```
+
+### Sample Specs
+
+The `samples/` directory contains OpenAPI v3 and Swagger v2 specs at varying complexity levels. Use these for manual testing and as reference when updating documentation:
+
+```bash
+cd samples/openapi-v3-simple
+./generate.sh
 ```
 
 ### Code Quality
@@ -72,13 +83,17 @@ This project uses:
 
 ```
 src/
-├── cli.ts          # Command-line interface
-├── generator.ts    # Core generation logic
-├── index.ts        # Main exports
-└── ...
+├── cli.ts              # Command-line interface
+├── generator.ts        # Core generation logic
+├── index.ts            # Main exports
+├── types.ts            # Shared types and enums
+├── utils/              # Naming, JSDoc, and progress helpers
+└── *.test.ts           # Test files
 
-dist/               # Compiled output
-.github/workflows/  # CI/CD workflows
+samples/                # OpenAPI v3 and Swagger v2 sample specs
+tests/                  # Integration tests
+dist/                   # Compiled output
+.github/workflows/      # CI/CD workflows
 ```
 
 ## Contributing Guidelines
@@ -116,14 +131,19 @@ bun run test
 bun run build
 ```
 
-5. Update documentation if needed
+5. Update documentation if needed (README, samples README, or inline JSDoc)
 
-6. Commit your changes:
+6. Add a changeset when your change should trigger a release:
+```bash
+bun run changeset
+```
+
+7. Commit your changes:
 ```bash
 git commit -m "feat: add your feature description"
 ```
 
-7. Push to your fork and create a pull request
+8. Push to your fork and create a pull request
 
 ### Commit Message Format
 
