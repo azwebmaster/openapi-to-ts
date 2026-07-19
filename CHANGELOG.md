@@ -1,5 +1,19 @@
 # @azwebmaster/openapi-to-ts
 
+## 0.0.19
+
+### Patch Changes
+
+- 686f371: fix invalid accessors for hyphenated query/header params, missing main-client type/AxiosResponse imports, empty types.ts module exports, relative URL redirects, and const/discriminator escaping
+- e2f6d2b: Fix missing namespace client type imports for composed response schemas and add stronger integration coverage.
+
+  ### Included
+
+  - fix generator import collection so referenced schema types in namespace signatures are imported correctly
+  - add regression tests for `oneOf`, `anyOf`, and `allOf` import cases
+  - add GitHub OpenAPI integration test in `tests/integration/`
+  - update CI to run integration tests from dedicated integration test folder
+
 ## 0.0.18
 
 ### Patch Changes
