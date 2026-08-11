@@ -129,7 +129,8 @@ export class OpenAPIGenerator {
     this.progress.message('✅ Generation complete!');
   }
 
-  public async fetchFromUrl(url: string, headers?: Record<string, string>): Promise<object> {
+  public async fetchFromUrl(url: string, headers?: Record<string, string>, redirectCount = 0): Promise<object> {
+    const maxRedirects = 10;
     return new Promise((resolve, reject) => {
       const client = url.startsWith('https://') ? https : http;
 
@@ -142,8 +143,13 @@ export class OpenAPIGenerator {
 
       const req = client.get(url, options, (res: http.IncomingMessage) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          // Handle redirects
-          this.fetchFromUrl(res.headers.location, headers).then(resolve).catch(reject);
+          if (redirectCount >= maxRedirects) {
+            reject(new Error(`Too many redirects while fetching OpenAPI spec from ${url}`));
+            return;
+          }
+          // Resolve relative redirect locations against the current URL
+          const redirectUrl = new URL(res.headers.location, url).href;
+          this.fetchFromUrl(redirectUrl, headers, redirectCount + 1).then(resolve).catch(reject);
           return;
         }
 
@@ -240,6 +246,12 @@ export class OpenAPIGenerator {
       this.generateTypeFromSchema(file, name, schema);
       this.progress.update(i + 1, this.naming.toTypeName(name));
     }
+
+    // Ensure types.ts is a valid ES module even when no schemas are generated,
+    // so index.ts can safely `export * from './types.js'`.
+    if (schemaEntries.length === 0) {
+      file.addStatements('export {};');
+    }
     
     this.progress.complete();
   }
@@ -331,6 +343,11 @@ export class OpenAPIGenerator {
       this.progress.update(i + 1, this.naming.toTypeName(name));
     }
 
+    // Ensure types.ts is a valid ES module even when no schemas are generated
+    if (schemaEntries.length === 0) {
+      indexFile.addStatements('export {};');
+    }
+
     this.progress.complete();
   }
 
@@ -416,6 +433,11 @@ export class OpenAPIGenerator {
       indexFile.addExportDeclaration({
         moduleSpecifier: `./types/${this.naming.toKebabCase(groupName)}.js`,
       });
+    }
+
+    // Ensure types.ts is a valid ES module even when no schemas are generated
+    if (totalTypes === 0) {
+      indexFile.addStatements('export {};');
     }
     
     this.progress.complete();
@@ -1050,6 +1072,7 @@ export class OpenAPIGenerator {
 
     // If discriminator has mapping, use mapped types
     if (discriminator.mapping) {
+      const propertyName = this.naming.toPropertyName(discriminator.propertyName);
       const mappedTypes = Object.entries(discriminator.mapping).map(([key, value]: [string, any]) => {
         let typeName: string;
         if (typeof value === 'string' && value.startsWith('#/')) {
@@ -1059,7 +1082,7 @@ export class OpenAPIGenerator {
         } else {
           typeName = this.naming.toTypeName(key);
         }
-        return `(${typeName} & { ${discriminator.propertyName}: "${key}" })`;
+        return `(${typeName} & { ${propertyName}: ${JSON.stringify(key)} })`;
       });
       return mappedTypes.join(' | ');
     }
@@ -1069,9 +1092,6 @@ export class OpenAPIGenerator {
 
   public handleConst(schema: any): string {
     if (schema.const !== undefined) {
-      if (typeof schema.const === 'string') {
-        return `"${schema.const}"`;
-      }
       return JSON.stringify(schema.const);
     }
     return 'unknown';
@@ -1272,6 +1292,9 @@ export class OpenAPIGenerator {
     file.organizeImports();
     this.fixRelativeImportsToJs(file);
     
+    // Import schema types referenced by methods on the main client
+    this.addSchemaTypeImportsForClient(file, classDeclaration);
+
     if (totalOperations > 0) {
       this.progress.complete();
     }
@@ -1285,6 +1308,7 @@ export class OpenAPIGenerator {
       { overwrite: true }
     );
 
+    // AxiosResponse is added later if default-namespace methods are generated on this file
     mainFile.addImportDeclaration({
       moduleSpecifier: 'axios',
       namedImports: ['AxiosInstance', 'AxiosRequestConfig', 'AxiosResponse'],
@@ -1295,11 +1319,6 @@ export class OpenAPIGenerator {
       moduleSpecifier: 'axios',
       defaultImport: 'axios',
     });
-
-    // Note: Type imports for request/response types are not needed in client.ts
-    // as they are only used in namespace implementation files, not in the client class itself.
-    // The client only needs namespace operation interfaces and factory functions.
-    // We'll collect types per-namespace for optimal imports (optimization #1).
 
     const classDeclaration = mainFile.addClass({
       name: `${this.namespace}Client`,
@@ -1406,31 +1425,24 @@ export class OpenAPIGenerator {
     const defaultReferencedTypes = new Set<string>();
     const defaultInlineTypes = new Set<string>();
     const defaultOperations = namespacedOperations['default'] || [];
+    if (defaultOperations.length > 0) {
+      // Default ops live on the main client and return AxiosResponse
+      const axiosImport = mainFile.getImportDeclarations().find(d =>
+        d.getModuleSpecifierValue() === 'axios' && d.isTypeOnly()
+      );
+      if (axiosImport && !axiosImport.getNamedImports().some(n => n.getName() === 'AxiosResponse')) {
+        axiosImport.addNamedImport('AxiosResponse');
+      }
+    }
     for (const { path, method, operation, metadata } of defaultOperations) {
       this.generateMethod(classDeclaration, path, method, operation, undefined, false, metadata, defaultReferencedTypes, defaultInlineTypes);
       processedOperations++;
       this.progress.update(processedOperations, operation.operationId || `${method.toUpperCase()} ${path}`);
     }
 
-    // Add type imports for default namespace operations
-    if (defaultReferencedTypes.size > 0) {
-      const allDefaultSchemas = this.schemaResolver.getAllSchemas(this.api);
-      const defaultImportedTypes = new Set<string>();
-      for (const typeName of defaultReferencedTypes) {
-        const schemaName = Object.keys(allDefaultSchemas).find(
-          s => this.naming.toTypeName(s) === typeName
-        );
-        if (schemaName) {
-          defaultImportedTypes.add(typeName);
-        }
-      }
-      if (defaultImportedTypes.size > 0) {
-        mainFile.addImportDeclaration({
-          moduleSpecifier: './types.js',
-          namedImports: Array.from(defaultImportedTypes).sort(),
-          isTypeOnly: true,
-        });
-      }
+    // Import schema types referenced by default-namespace methods on the main client
+    if (defaultOperations.length > 0) {
+      this.addSchemaTypeImportsForClient(mainFile, classDeclaration);
     }
 
     // Generate separate files for each namespace
@@ -2924,10 +2936,7 @@ ${operations.map(({ operationId }) => {
       ? path.replace(pathParamRegex, (match, paramName) => {
           const normalizedParamName = this.naming.toPropertyName(paramName);
           if (pathParamsSet.has(normalizedParamName)) {
-            // Use bracket notation for quoted property names, dot notation otherwise
-            const accessor = normalizedParamName.startsWith("'") || normalizedParamName.startsWith('"')
-              ? `params[${normalizedParamName}]`
-              : `params.${normalizedParamName}`;
+            const accessor = this.naming.toPropertyAccessor('params', normalizedParamName, false);
             return `\${${accessor}}`;
           }
           return match;
@@ -2956,8 +2965,7 @@ ${operations.map(({ operationId }) => {
         const queryParamsList = queryParams.map(p => {
           const param = paramMap.get(p);
           const isRequired = param?.required;
-          // OPTIMIZATION: Compute accessor once instead of in template string
-          const accessor = (paramsIsOptional || !isRequired) ? `params?.${p}` : `params.${p}`;
+          const accessor = this.naming.toPropertyAccessor('params', p, paramsIsOptional || !isRequired);
           return `${p}: ${accessor}`;
         }).join(', ');
         statements.push(`const queryParams = { ${queryParamsList} };`);
@@ -2968,8 +2976,7 @@ ${operations.map(({ operationId }) => {
         const headerParamsList = headerParams.map(p => {
           const param = paramMap.get(p);
           const isRequired = param?.required;
-          // OPTIMIZATION: Compute accessor once instead of in template string
-          const accessor = (paramsIsOptional || !isRequired) ? `params?.${p}` : `params.${p}`;
+          const accessor = this.naming.toPropertyAccessor('params', p, paramsIsOptional || !isRequired);
           return `${p}: ${accessor}`;
         }).join(', ');
         statements.push(`const headers = { ${headerParamsList} };`);
@@ -3632,5 +3639,60 @@ ${operations.map(({ operationId }) => {
     }
 
     return usedTypes;
+  }
+
+  /**
+   * Adds type-only imports for schema types referenced by methods on a client file.
+   * Skips locally generated aliases (Params/Data/Response) and the client class name.
+   */
+  private addSchemaTypeImportsForClient(file: SourceFile, classDeclaration: any): void {
+    const usedTypes = this.extractUsedTypesFromClassMethods(classDeclaration);
+    if (usedTypes.size === 0) {
+      return;
+    }
+
+    const allSchemas = (this.api?.components as any)?.schemas || (this.api as any)?.definitions || {};
+    const localTypeNames = new Set(file.getTypeAliases().map(t => t.getName()));
+    const clientClassName = `${this.namespace}Client`;
+    const importedTypes = new Set<string>();
+
+    for (const typeName of usedTypes) {
+      if (localTypeNames.has(typeName) || typeName === clientClassName) {
+        continue;
+      }
+
+      const schemaName = Object.keys(allSchemas).find(
+        name => this.naming.toTypeName(name) === typeName
+      );
+      if (schemaName) {
+        importedTypes.add(typeName);
+      }
+    }
+
+    if (importedTypes.size === 0) {
+      return;
+    }
+
+    const existingImport = file.getImportDeclarations().find(d =>
+      d.getModuleSpecifierValue() === './types.js'
+    );
+
+    if (existingImport) {
+      const alreadyImported = new Set(existingImport.getNamedImports().map(n => n.getName()));
+      for (const typeName of Array.from(importedTypes).sort()) {
+        if (!alreadyImported.has(typeName)) {
+          existingImport.addNamedImport(typeName);
+        }
+      }
+      if (!existingImport.isTypeOnly()) {
+        existingImport.setIsTypeOnly(true);
+      }
+    } else {
+      file.addImportDeclaration({
+        moduleSpecifier: './types.js',
+        namedImports: Array.from(importedTypes).sort(),
+        isTypeOnly: true,
+      });
+    }
   }
 }

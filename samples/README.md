@@ -103,19 +103,16 @@ Each sample directory contains:
 
 ### Basic Usage
 ```typescript
-import { createAPIClient } from './generated';
+import { createClient } from './generated';
 
-const client = createAPIClient({
-  baseURL: 'https://api.example.com/v1'
-});
+const client = createClient('https://api.example.com/v1');
 
 const users = await client.getUsers();
 ```
 
 ### With Authentication
 ```typescript
-const client = createAPIClient({
-  baseURL: 'https://api.example.com/v1',
+const client = createClient('https://api.example.com/v1', {
   headers: {
     'Authorization': 'Bearer your-token',
     'X-API-Key': 'your-api-key'

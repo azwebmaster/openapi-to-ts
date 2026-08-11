@@ -86,7 +86,7 @@ program
 
       console.log('Next steps:');
       console.log('1. Edit the operationIds array in .ott.json to select which operations to generate');
-      console.log('2. Run: openapi-gen generate --config to generate the client');
+      console.log('2. Run: openapi-to-ts generate to generate the client');
 
     } catch (error: any) {
       console.error('\n❌ Failed to initialize configuration:');
@@ -111,20 +111,20 @@ program
       const config = await OpenAPIGenerator.loadConfig(options.config);
       if (!config) {
         console.error(`❌ Error: Configuration file not found: ${options.config}`);
-        console.error('   Run "openapi-gen init <spec>" to create a configuration file first.');
+        console.error('   Run "openapi-to-ts init <spec>" to create a configuration file first.');
         process.exit(1);
       }
 
       // Validate config structure
       if (!config.apis || !Array.isArray(config.apis)) {
         console.error(`❌ Error: Invalid configuration file format. Missing or invalid 'apis' array.`);
-        console.error('   Run "openapi-gen init <spec>" to create a new configuration file.');
+        console.error('   Run "openapi-to-ts init <spec>" to create a new configuration file.');
         process.exit(1);
       }
 
       if (config.apis.length === 0) {
         console.error(`❌ Error: No APIs found in configuration file.`);
-        console.error('   Run "openapi-gen init <spec>" to create a new configuration file.');
+        console.error('   Run "openapi-to-ts init <spec>" to create a new configuration file.');
         process.exit(1);
       }
 
@@ -222,20 +222,20 @@ program
         const config = await OpenAPIGenerator.loadConfig(configPath);
         if (!config) {
           console.error(`❌ Error: Configuration file not found: ${configPath}`);
-          console.error('   Run "openapi-gen init <spec>" to create a configuration file first.');
+          console.error('   Run "openapi-to-ts init <spec>" to create a configuration file first.');
           process.exit(1);
         }
 
         // Validate config structure
         if (!config.apis || !Array.isArray(config.apis)) {
           console.error(`❌ Error: Invalid configuration file format. Missing or invalid 'apis' array.`);
-          console.error('   Run "openapi-gen init <spec>" to create a new configuration file.');
+          console.error('   Run "openapi-to-ts init <spec>" to create a new configuration file.');
           process.exit(1);
         }
 
         if (config.apis.length === 0) {
           console.error(`❌ Error: No APIs found in configuration file.`);
-          console.error('   Run "openapi-gen init <spec>" to create a new configuration file.');
+          console.error('   Run "openapi-to-ts init <spec>" to create a new configuration file.');
           process.exit(1);
         }
 
@@ -290,8 +290,8 @@ program
         // Traditional mode - validate spec
         if (!spec) {
           console.error('❌ Error: No spec provided and no configuration file found.');
-          console.error('   Use: openapi-gen generate <spec> or create a .ott.json configuration file');
-          console.error('   Run: openapi-gen init <spec> to create a configuration file');
+          console.error('   Use: openapi-to-ts generate <spec> or create a .ott.json configuration file');
+          console.error('   Run: openapi-to-ts init <spec> to create a configuration file');
           process.exit(1);
         }
 
@@ -341,8 +341,8 @@ program
         // Traditional mode - validate spec
         if (!spec) {
           console.error('❌ Error: No spec provided and no configuration file found.');
-          console.error('   Use: openapi-gen generate <spec> or create a .ott.json configuration file');
-          console.error('   Run: openapi-gen init <spec> to create a configuration file');
+          console.error('   Use: openapi-to-ts generate <spec> or create a .ott.json configuration file');
+          console.error('   Run: openapi-to-ts init <spec> to create a configuration file');
           process.exit(1);
         }
 
@@ -739,51 +739,51 @@ program
     console.log('=============================\n');
 
     console.log('🔧 Basic generation:');
-    console.log('   openapi-gen generate ./api.yaml\n');
+    console.log('   openapi-to-ts generate ./api.yaml\n');
 
     console.log('🌐 Generate from URL:');
-    console.log('   openapi-gen generate https://api.example.com/openapi.json\n');
+    console.log('   openapi-to-ts generate https://api.example.com/openapi.json\n');
 
     console.log('🔐 Generate from URL with authentication:');
-    console.log('   openapi-gen generate https://api.example.com/openapi.json \\');
+    console.log('   openapi-to-ts generate https://api.example.com/openapi.json \\');
     console.log('     -H "Authorization: Bearer your-token" \\');
     console.log('     -H "X-API-Key: your-api-key"\n');
 
     console.log('⚙️  Initialize configuration:');
-    console.log('   openapi-gen init ./api.yaml\n');
+    console.log('   openapi-to-ts init ./api.yaml\n');
 
     console.log('🔐 Initialize from URL with authentication:');
-    console.log('   openapi-gen init https://api.example.com/openapi.json \\');
+    console.log('   openapi-to-ts init https://api.example.com/openapi.json \\');
     console.log('     -H "Authorization: Bearer your-token" \\');
     console.log('     -H "X-API-Key: your-api-key"\n');
 
     console.log('🎯 Custom output directory:');
-    console.log('   openapi-gen generate ./api.yaml -o ./src/api\n');
+    console.log('   openapi-to-ts generate ./api.yaml -o ./src/api\n');
 
     console.log('🏷️  Custom namespace:');
-    console.log('   openapi-gen generate ./api.yaml -n MyAPI\n');
+    console.log('   openapi-to-ts generate ./api.yaml -n MyAPI\n');
 
     console.log('📦 Type output modes:');
     console.log('   # Single file (default):');
-    console.log('   openapi-gen generate ./api.yaml\n');
+    console.log('   openapi-to-ts generate ./api.yaml\n');
     console.log('   # One file per type:');
-    console.log('   openapi-gen generate ./api.yaml -t file-per-type\n');
+    console.log('   openapi-to-ts generate ./api.yaml -t file-per-type\n');
     console.log('   # Group by tag/category:');
-    console.log('   openapi-gen generate ./api.yaml -t group-by-tag\n');
+    console.log('   openapi-to-ts generate ./api.yaml -t group-by-tag\n');
 
     console.log('⚙️  All options:');
-    console.log('   openapi-gen generate ./api.yaml \\');
+    console.log('   openapi-to-ts generate ./api.yaml \\');
     console.log('     --output ./src/generated \\');
     console.log('     --namespace GitHubAPI \\');
     console.log('     --axios-instance githubClient \\');
     console.log('     --type-output file-per-type\n');
 
     console.log('🔍 Dry run (preview):');
-    console.log('   openapi-gen generate ./api.yaml --dry-run\n');
+    console.log('   openapi-to-ts generate ./api.yaml --dry-run\n');
 
     console.log('📋 Spec information:');
-    console.log('   openapi-gen info ./api.yaml');
-    console.log('   openapi-gen info https://api.example.com/openapi.json\n');
+    console.log('   openapi-to-ts info ./api.yaml');
+    console.log('   openapi-to-ts info https://api.example.com/openapi.json\n');
 
     console.log('💡 Tips:');
     console.log('   • Supports both YAML and JSON OpenAPI specs');

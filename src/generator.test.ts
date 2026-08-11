@@ -177,6 +177,23 @@ describe('OpenAPIGenerator', () => {
           const result = naming.toPropertyName('name with spaces');
           expect(result).toBe("'name with spaces'");
         });
+
+        it('should escape embedded single quotes', () => {
+          const result = naming.toPropertyName("O'Reilly");
+          expect(result).toBe("'O\\'Reilly'");
+        });
+      });
+
+      describe('toPropertyAccessor', () => {
+        it('should use dot notation for valid identifiers', () => {
+          expect(naming.toPropertyAccessor('params', 'userId')).toBe('params.userId');
+          expect(naming.toPropertyAccessor('params', 'userId', true)).toBe('params?.userId');
+        });
+
+        it('should use bracket notation for invalid identifiers', () => {
+          expect(naming.toPropertyAccessor('params', 'x-api-key')).toBe("params['x-api-key']");
+          expect(naming.toPropertyAccessor('params', 'sort-by', true)).toBe("params?.['sort-by']");
+        });
       });
 
       describe('toMethodName', () => {
@@ -922,12 +939,30 @@ describe('OpenAPIGenerator', () => {
         const result = generator.generateDiscriminatedUnion(schema, types);
         expect(result).toBe('Cat | Dog');
       });
+
+      it('should quote discriminator property names that are invalid identifiers', () => {
+        const schema = {
+          discriminator: {
+            propertyName: 'pet-type',
+            mapping: {
+              'cat-a': '#/components/schemas/Cat'
+            }
+          }
+        };
+        const result = generator.generateDiscriminatedUnion(schema, ['Cat']);
+        expect(result).toBe('(Cat & { \'pet-type\': "cat-a" })');
+      });
     });
 
     describe('handleConst', () => {
       it('should handle string const', () => {
         const result = generator.handleConst({ const: 'fixed' });
         expect(result).toBe('"fixed"');
+      });
+
+      it('should escape quotes inside string const values', () => {
+        const result = generator.handleConst({ const: 'say "hi"' });
+        expect(result).toBe('"say \\"hi\\""');
       });
 
       it('should handle number const', () => {
@@ -3828,6 +3863,46 @@ describe('OpenAPIGenerator', () => {
       }
     });
 
+    it('should resolve relative redirect locations when fetching specs', async () => {
+      const http = await import('http');
+      const mockSpec = {
+        openapi: '3.0.0',
+        info: { title: 'Redirect API', version: '1.0.0' },
+        paths: {}
+      };
+
+      const server = http.createServer((req, res) => {
+        if (req.url === '/openapi.json') {
+          res.writeHead(302, { Location: '/v1/openapi.json' });
+          res.end();
+          return;
+        }
+        if (req.url === '/v1/openapi.json') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(mockSpec));
+          return;
+        }
+        res.writeHead(404);
+        res.end();
+      });
+
+      await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close();
+        throw new Error('Failed to bind test server');
+      }
+
+      try {
+        const result = await generator.fetchFromUrl(`http://127.0.0.1:${address.port}/openapi.json`);
+        expect(result).toEqual(mockSpec);
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close(err => (err ? reject(err) : resolve()));
+        });
+      }
+    });
+
     it('should not leak event listeners', async () => {
       const initialListeners = process.listenerCount('uncaughtException') + 
                               process.listenerCount('unhandledRejection');
@@ -5054,6 +5129,181 @@ describe('import regression checks', () => {
     expect(content).toContain('BaseProfile');
     expect(content).toContain('ProfileDetails');
     expect(content).toMatch(/import type \{[^}]*BaseProfile[^}]*ProfileDetails[^}]*\} from "\.\.\/types\.js";|import type \{[^}]*ProfileDetails[^}]*BaseProfile[^}]*\} from "\.\.\/types\.js";/);
+  });
+
+  it('should import schema types and AxiosResponse for default-namespace methods on main client', async () => {
+    const testOutputDir = path.join(__dirname, 'test-output-main-client-imports');
+    try {
+      const specPath = path.join(testOutputDir, 'test-spec.yaml');
+      await fs.mkdir(testOutputDir, { recursive: true });
+      await fs.writeFile(
+        specPath,
+        JSON.stringify({
+          openapi: '3.0.0',
+          info: { title: 'Main Client Import API', version: '1.0.0' },
+          paths: {
+            '/users': {
+              get: {
+                operationId: 'listUsers',
+                responses: {
+                  '200': {
+                    description: 'OK',
+                    content: {
+                      'application/json': {
+                        schema: { $ref: '#/components/schemas/User' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          components: {
+            schemas: {
+              User: {
+                type: 'object',
+                properties: { id: { type: 'string' } },
+                required: ['id']
+              }
+            }
+          }
+        }, null, 2)
+      );
+
+      const generator = new OpenAPIGenerator({
+        spec: specPath,
+        outputDir: testOutputDir,
+        namespace: 'MainClientImportAPI',
+      });
+      await generator.generate();
+
+      const clientContent = await fs.readFile(path.join(testOutputDir, 'client.ts'), 'utf-8');
+      expect(clientContent).toMatch(/AxiosResponse/);
+      expect(clientContent).toMatch(/import type \{[^}]*AxiosResponse[^}]*\} from "axios"/);
+      expect(clientContent).toMatch(/import type \{[^}]*User[^}]*\} from "\.\/types\.js"/);
+      expect(clientContent).toContain('Promise<AxiosResponse<User>>');
+    } finally {
+      await fs.rm(testOutputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should emit a valid empty module for types.ts when no schemas exist', async () => {
+    const testOutputDir = path.join(__dirname, 'test-output-empty-types');
+    try {
+      const specPath = path.join(testOutputDir, 'test-spec.yaml');
+      await fs.mkdir(testOutputDir, { recursive: true });
+      await fs.writeFile(
+        specPath,
+        JSON.stringify({
+          openapi: '3.0.0',
+          info: { title: 'Empty Types API', version: '1.0.0' },
+          paths: {
+            '/ping': {
+              get: {
+                operationId: 'ping',
+                responses: { '204': { description: 'No Content' } }
+              }
+            }
+          }
+        }, null, 2)
+      );
+
+      const generator = new OpenAPIGenerator({
+        spec: specPath,
+        outputDir: testOutputDir,
+        namespace: 'EmptyTypesAPI',
+      });
+      await generator.generate();
+
+      const typesContent = await fs.readFile(path.join(testOutputDir, 'types.ts'), 'utf-8');
+      expect(typesContent).toContain('export {};');
+    } finally {
+      await fs.rm(testOutputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should generate valid accessors for hyphenated query and header parameters', async () => {
+    const testOutputDir = path.join(__dirname, 'test-output-hyphenated-params');
+    try {
+      const specPath = path.join(testOutputDir, 'test-spec.yaml');
+      await fs.mkdir(testOutputDir, { recursive: true });
+      await fs.writeFile(
+        specPath,
+        JSON.stringify({
+          openapi: '3.0.0',
+          info: { title: 'Hyphen Params API', version: '1.0.0' },
+          paths: {
+            '/items': {
+              get: {
+                operationId: 'listItems',
+                parameters: [
+                  {
+                    name: 'x-api-key',
+                    in: 'header',
+                    required: true,
+                    schema: { type: 'string' }
+                  },
+                  {
+                    name: 'sort-by',
+                    in: 'query',
+                    schema: { type: 'string' }
+                  }
+                ],
+                responses: {
+                  '200': {
+                    description: 'OK',
+                    content: {
+                      'application/json': {
+                        schema: { type: 'object' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }, null, 2)
+      );
+
+      const generator = new OpenAPIGenerator({
+        spec: specPath,
+        outputDir: testOutputDir,
+        namespace: 'HyphenParamsAPI',
+      });
+      await generator.generate();
+
+      const clientContent = await fs.readFile(path.join(testOutputDir, 'client.ts'), 'utf-8');
+      expect(clientContent).toContain("params['x-api-key']");
+      expect(clientContent).toContain("params?.['sort-by']");
+      expect(clientContent).not.toContain("params.'x-api-key'");
+      expect(clientContent).not.toContain("params?.'sort-by'");
+
+      // Ensure the full generated package type-checks (including empty schema sets)
+      const tsconfigPath = path.join(testOutputDir, 'tsconfig.test.json');
+      await fs.writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          compilerOptions: {
+            target: 'ES2020',
+            module: 'ESNext',
+            moduleResolution: 'Node',
+            strict: true,
+            skipLibCheck: true,
+            noEmit: true,
+            types: ['node'],
+          },
+          include: ['**/*.ts'],
+        }, null, 2)
+      );
+
+      const tsc = spawnSync('bunx', ['tsc', '--noEmit', '-p', tsconfigPath], {
+        cwd: testOutputDir,
+        encoding: 'utf-8',
+      });
+      expect(tsc.status, `TypeScript check failed:\n${tsc.stdout}\n${tsc.stderr}`).toBe(0);
+    } finally {
+      await fs.rm(testOutputDir, { recursive: true, force: true });
+    }
   });
 });
 

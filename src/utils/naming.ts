@@ -58,12 +58,26 @@ export class NamingUtils {
     if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(unquotedName)) {
       result = unquotedName;
     } else {
-      result = `'${unquotedName}'`;
+      // Escape embedded single quotes so generated identifiers stay valid
+      result = `'${unquotedName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
     }
     
     // Cache the result
     this.propertyNameCache.set(name, result);
     return result;
+  }
+
+  /**
+   * Builds a TypeScript property accessor expression.
+   * Uses bracket notation for quoted/invalid identifiers (e.g. params['x-api-key']).
+   */
+  toPropertyAccessor(objectName: string, propertyName: string, optional = false): string {
+    const prop = this.toPropertyName(propertyName);
+    const isQuoted = prop.startsWith("'") || prop.startsWith('"');
+    if (isQuoted) {
+      return optional ? `${objectName}?.[${prop}]` : `${objectName}[${prop}]`;
+    }
+    return optional ? `${objectName}?.${prop}` : `${objectName}.${prop}`;
   }
 
   /**

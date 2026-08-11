@@ -9,7 +9,7 @@ Transform your OpenAPI 3.0+ specifications into production-ready TypeScript clie
 
 ## Features
 
-- **🎯 Zero Config**: Works out of the box with any OpenAPI 3.0+ spec
+- **🎯 Zero Config**: Works out of the box with any OpenAPI 3.0+ or Swagger 2.0 spec
 - **🔒 Type Safe**: Full TypeScript support with discriminated unions, nullable types, and schema composition
 - **⚡ Fast**: Built with ts-morph for lightning-fast code generation
 - **🛠️ Developer Friendly**: Rich JSDoc comments, IntelliSense, and error-free generated code
@@ -17,7 +17,7 @@ Transform your OpenAPI 3.0+ specifications into production-ready TypeScript clie
 
 ## 🚀 Quick Start
 
-## Installation
+### Installation
 
 ```bash
 # For CLI usage (recommended)
@@ -34,7 +34,13 @@ pnpm add @azwebmaster/openapi-to-ts
 
 ### CLI Usage (Recommended)
 
-The CLI is the easiest way to generate TypeScript clients:
+The CLI is available as `openapi-to-ts` or the shorter alias `ott`:
+
+```bash
+openapi-to-ts generate ./api.yaml
+# or
+ott generate ./api.yaml
+```
 
 ```bash
 # Basic generation
@@ -64,7 +70,7 @@ For integration into build scripts or custom tooling:
 import { generateFromSpec } from '@azwebmaster/openapi-to-ts';
 
 await generateFromSpec({
-  inputSpec: './api.yaml',
+  spec: './api.yaml',
   outputDir: './generated/api',
   namespace: 'MyAPI',
   typeOutputMode: 'single-file'
@@ -94,30 +100,33 @@ const newUser = await api.createUser({
 
 ```
 generated/
-├── types.ts      # All TypeScript interfaces
-├── client.ts     # Axios-based API client
-└── index.ts      # Exports and factory function
+├── types.ts          # All TypeScript types (or re-exports when using file-per-type / group-by-tag)
+├── types/            # Individual type files (file-per-type or group-by-tag modes only)
+├── client.ts         # Axios-based API client class
+├── namespaces/       # Namespace modules (when operationIds use dot notation, e.g. users.getProfile)
+└── index.ts          # Exports and createClient factory
 ```
+
+See the [samples directory](samples/README.md) for working examples across OpenAPI v3 and Swagger v2 specs.
 
 ### Example Generated Types
 
 ```typescript
 // types.ts
-export interface User {
+export type User = {
   id: string;
   email: string;
   name: string;
   avatar?: string | null;
   preferences?: UserPreferences;
-}
+};
 
-export interface CreateUserRequest {
+export type CreateUserRequest = {
   email: string;
   name: string;
   password: string;
   age?: number;
-}
-```
+};
 
 ### Example Generated Client
 
@@ -139,27 +148,6 @@ export class MyAPIClient {
 ```
 
 ## 🎯 Advanced Features
-
-### Configuration File System
-
-For complex projects, use `.ott.json` configuration files to manage multiple APIs and operation filtering:
-
-```bash
-# Initialize configuration from OpenAPI spec
-openapi-to-ts init ./api.yaml
-
-# List available operations
-openapi-to-ts list
-
-# Generate only selected operations
-openapi-to-ts generate --config --operation-ids "getUsers,createUser"
-```
-
-Configuration files support:
-- **Multiple APIs**: Generate clients for different OpenAPI specs
-- **Operation Filtering**: Select only the operations you need
-- **Persistent Settings**: Save generation options for team collaboration
-- **CI/CD Integration**: Use config files in automated builds
 
 ### Schema Composition Support
 
@@ -185,10 +173,10 @@ components:
 // Generated TypeScript
 export type Pet = Dog | Cat;
 
-export interface Dog extends BasePet {
+export type Dog = BasePet & {
   petType: "dog";
   breed: string;
-}
+};
 
 // TypeScript narrows the type automatically! 🎉
 pets.forEach(pet => {
@@ -213,15 +201,16 @@ vehicle: Car | Truck | Motorcycle;
 
 ### Namespace Organization
 
+When operationIds use dot notation (e.g. `users.getProfile`, `admin.getSystemStats`), the generator creates namespace properties on the client:
+
 ```typescript
-// Organized by operationId namespaces
 const api = createClient('https://api.example.com');
 
-// Direct methods
+// Flat operationIds (e.g. getUsers, createUser)
 await api.getUsers();
 await api.createUser(data);
 
-// Namespaced methods
+// Dot-separated operationIds become namespaces
 await api.users.getProfile();
 await api.users.updateSettings(data);
 await api.admin.getSystemStats();
@@ -229,7 +218,7 @@ await api.admin.getSystemStats();
 
 ## ⚙️ Configuration File System
 
-For complex projects or when you need to generate multiple API clients, use the configuration file system with `.ott.json`:
+For complex projects or when you need to generate multiple API clients, use `.ott.json` configuration files. The CLI auto-detects `.ott.json` in the current directory — you do not need a `--config` flag unless using a custom path.
 
 ### Initialize Configuration
 
@@ -280,11 +269,14 @@ openapi-to-ts list
 # List operations for specific API (if multiple APIs)
 openapi-to-ts list --api "My API"
 
-# Generate using configuration file
-openapi-to-ts generate --config
+# Generate using configuration file (auto-detects .ott.json in cwd)
+openapi-to-ts generate
 
 # Generate specific operations from CLI
-openapi-to-ts generate --config --operation-ids "getUsers,createUser"
+openapi-to-ts generate --operation-ids "getUsers,createUser"
+
+# Generate a specific API when multiple are defined in config
+openapi-to-ts generate --api "My API"
 ```
 
 ### Benefits of Configuration Files
@@ -325,7 +317,26 @@ openapi-to-ts examples
 | `-a, --axios-instance <name>` | Name for the Axios instance variable | `apiClient` |
 | `-t, --type-output <mode>` | Type organization: `single-file`, `file-per-type`, `group-by-tag` | `single-file` |
 | `-H, --header <header>` | Add header for URL requests (format: "Name: Value") | - |
+| `-c, --config <file>` | Path to configuration file | `.ott.json` in cwd |
+| `--api <name>` | Generate a specific API from a multi-API config | - |
+| `--operation-ids <ids>` | Comma-separated operation IDs to include | all |
 | `--dry-run` | Preview generation without writing files | `false` |
+| `--no-progress` | Disable progress messages | `false` |
+
+### Init Command Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-o, --output <dir>` | Default output directory for generated files | `./generated` |
+| `-c, --config <file>` | Path for the configuration file to create | `.ott.json` in cwd |
+| `-H, --header <header>` | Add header for URL requests (format: "Name: Value") | - |
+
+### List Command Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-c, --config <file>` | Path to configuration file | `.ott.json` in cwd |
+| `--api <name>` | List operations for a specific API in a multi-API config | - |
 
 ### CLI Examples
 
@@ -359,8 +370,8 @@ openapi-to-ts generate api.yaml --dry-run
 # Configuration file workflow
 openapi-to-ts init api.yaml                         # Create .ott.json config
 openapi-to-ts list                                  # List available operations
-openapi-to-ts generate --config                     # Generate using config
-openapi-to-ts generate --config --operation-ids "getUsers,createUser"  # Generate specific operations
+openapi-to-ts generate                              # Generate using auto-detected .ott.json
+openapi-to-ts generate --operation-ids "getUsers,createUser"  # Generate specific operations
 
 # Show API specification information
 openapi-to-ts info api.yaml
@@ -432,12 +443,19 @@ Environment variables also work in `.ott.json` configuration files:
 - **`file-per-type`**: Each type in its own file under `types/` directory
 - **`group-by-tag`**: Types grouped by OpenAPI tags/categories
 
+### Client Output Modes
+
+Client output mode is configured programmatically via `clientOutputMode` (not available as a CLI flag):
+
+- **`split-by-namespace`** (default): Groups dot-separated operationIds into namespace modules under `namespaces/`
+- **`single-file`**: All client methods in a single `client.ts` file
+
 ## 🔧 Programmatic Usage
 
 For integration into build scripts, CI/CD pipelines, or custom tooling:
 
 ```typescript
-import { generateFromSpec, TypeOutputMode } from '@azwebmaster/openapi-to-ts';
+import { generateFromSpec, TypeOutputMode, ClientOutputMode } from '@azwebmaster/openapi-to-ts';
 
 // Basic usage
 await generateFromSpec({
@@ -453,11 +471,13 @@ await generateFromSpec({
   namespace: 'GitHubAPI',
   axiosInstanceName: 'githubClient',
   typeOutputMode: TypeOutputMode.FilePerType,
+  clientOutputMode: ClientOutputMode.SplitByNamespace,
   headers: {
     'Authorization': 'Bearer ${API_TOKEN}',
     'X-API-Key': '${API_KEY:default-key}'
   },
-  operationIds: ['getUsers', 'createUser', 'updateUser']
+  operationIds: ['getUsers', 'createUser', 'updateUser'],
+  noProgress: true
 });
 ```
 
@@ -471,7 +491,9 @@ interface GeneratorOptions {
   axiosInstanceName?: string;           // Name for Axios instance (default: 'apiClient')
   headers?: Record<string, string>;     // HTTP headers for remote specs
   typeOutputMode?: TypeOutputMode;      // How to organize generated types
-  operationIds?: string[];              // Filter specific operations to generate
+  clientOutputMode?: ClientOutputMode;  // How to organize client methods (default: split-by-namespace)
+  operationIds?: string[];            // Filter specific operations to generate
+  noProgress?: boolean;                 // Disable progress messages (default: false)
 }
 
 enum TypeOutputMode {
@@ -479,13 +501,18 @@ enum TypeOutputMode {
   FilePerType = 'file-per-type',        // One file per type
   GroupByTag = 'group-by-tag'           // Group by OpenAPI tags
 }
+
+enum ClientOutputMode {
+  SingleFile = 'single-file',           // All methods in one client file
+  SplitByNamespace = 'split-by-namespace' // Namespace modules for dot-separated operationIds
+}
 ```
 
 ### Build Script Integration
 
 ```typescript
 // scripts/generate-api.ts
-import { generateFromSpec, TypeOutputMode } from '@azwebmaster/openapi-to-ts';
+import { generateFromSpec, TypeOutputMode, ClientOutputMode } from '@azwebmaster/openapi-to-ts';
 
 async function generateAPI() {
   try {
